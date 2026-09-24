@@ -16,7 +16,7 @@ const CONFIG = {
   textoFinal: "Así quedó nuestro recorrido 💞",
 
   hitos: [
-    { km: 30, titulo: "¿Dónde crees que vamos?", mensaje: "Te dejo una pista: el primer recuerdo de la travesía aparece a los 30 km. Subí una foto de lo que ves ahora 📸", foto: true },
+    { km: 30, titulo: "¿Dónde crees que vamos?", mensaje: "Es un lugar que te gusta ir mucho. ¡Paciencia, tomemos unos mates! 🧉", foto: true, input: true, placeholder: "Escribí tu respuesta…" },
     { km: 100, titulo: "Estamos cerca", mensaje: "Vamos a un lugar que te gusta mucho 💞", foto: false }
   ],
 

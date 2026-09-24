@@ -11,7 +11,7 @@
   function estadoInicial() {
     return {
       iniciado: false, pos: null, track: [], km: 0,
-      vistas: [], hitoFotos: [], destinosVistos: [], destinoFotos: [], finalizado: false
+      vistas: [], hitoFotos: [], destinosVistos: [], destinoFotos: [], respuestas: [], finalizado: false
     };
   }
 
@@ -203,6 +203,7 @@
   var cola = [];
   var modalAbierto = false;
   var contextoFoto = null;
+  var eventoActual = null;
 
   function revisarEventos() {
     var algo = false;
@@ -268,17 +269,33 @@
 
     modalAbierto = true;
     contextoFoto = ev;
+    eventoActual = ev;
     $("#m-sello").textContent = sello;
     $("#m-titulo").textContent = titulo || "";
     $("#m-texto").textContent = mensaje || "";
     var btnFoto = $("#m-subir-foto");
     btnFoto.classList.toggle("oculto", !conFoto);
+    var inp = $("#m-input");
+    var conInput = ev.tipo === "pista" && !!CFG.hitos[ev.idx].input;
+    inp.classList.toggle("oculto", !conInput);
+    if (conInput) {
+      inp.value = estado.respuestas[ev.idx] || "";
+      inp.placeholder = CFG.hitos[ev.idx].placeholder || "";
+    }
     $("#modal-evento").classList.add("abierto");
   }
 
   function cerrarEvento() {
+    if (eventoActual && eventoActual.tipo === "pista" && !$("#m-input").classList.contains("oculto")) {
+      var v = $("#m-input").value.trim();
+      if (v && estado.respuestas[eventoActual.idx] !== v) {
+        estado.respuestas[eventoActual.idx] = v;
+        guardar();
+      }
+    }
     modalAbierto = false;
     contextoFoto = null;
+    eventoActual = null;
     $("#modal-evento").classList.remove("abierto");
     siguienteEvento();
   }
