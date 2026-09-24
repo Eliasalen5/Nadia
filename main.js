@@ -451,8 +451,6 @@
       : (pendienteDest !== -1 ? { tipo: "destino", idx: pendienteDest } : null);
 
     if (ev) {
-      if (ev.tipo === "pista") { estado.vistas.push(ev.idx); guardar(); }
-      if (ev.tipo === "destino") { estado.destinosVistos.push(ev.idx); guardar(); }
       abrirEvento(ev);
       actualizarBotonTerminar();
     }
