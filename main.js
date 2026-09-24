@@ -60,7 +60,6 @@
     $("#v-intro").textContent = CFG.textoIntroMapa;
     $("#v-buscando").textContent = CFG.textoBuscando;
     $("#btn-reintentar").textContent = CFG.textoReintentar;
-    $("#btn-subir-recuerdo").textContent = CFG.textoSubirFoto;
     $("#m-subir-foto").textContent = CFG.textoSubirFoto;
     $("#m-cerrar").textContent = CFG.textoSeguir;
     $("#btn-terminar").textContent = CFG.textoTerminar;
@@ -520,7 +519,6 @@
     });
 
     $("#m-subir-foto").addEventListener("click", pedirFoto);
-    $("#btn-subir-recuerdo").addEventListener("click", pedirFoto);
     $("#m-cerrar").addEventListener("click", cerrarEvento);
     $("#input-foto").addEventListener("change", function () {
       procesarArchivo(this.files && this.files[0]);

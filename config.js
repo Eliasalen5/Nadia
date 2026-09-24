@@ -17,7 +17,7 @@ const CONFIG = {
 
   hitos: [
     { km: 30, titulo: "¿Dónde crees que vamos?", mensaje: "Es un lugar que te gusta ir mucho. ¡Paciencia, tomemos unos mates! 🧉", foto: true, input: true, placeholder: "Escribí tu respuesta…" },
-    { km: 100, titulo: "Estamos cerca", mensaje: "Vamos a un lugar que te gusta mucho 💞", foto: false }
+    { km: 100, titulo: "Estamos cerca", mensaje: "Ya estamos cerca, acá podés gastar platita 💸", foto: false }
   ],
 
   destinos: [
