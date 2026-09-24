@@ -21,6 +21,6 @@ const CONFIG = {
   ],
 
   destinos: [
-    { km: 125, titulo: "¡Llegamos!", mensaje: "Primer destino a la vista. Subí una foto de este momento para que quede en el mapa 🎉" }
+    { km: 125, titulo: "¡Llegamos!", mensaje: "Tu regalo es elegirte cualquier cosa del shopping pero solo una, ¡pensalo bien!! 🛍️", foto: true }
   ]
 };

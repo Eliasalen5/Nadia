@@ -270,6 +270,7 @@
     contextoFoto = ev;
     eventoActual = ev;
     $("#m-sello").textContent = sello;
+    $("#m-sello").classList.toggle("oculto", ev.tipo === "destino");
     $("#m-titulo").textContent = titulo || "";
     $("#m-texto").textContent = mensaje || "";
     var btnFoto = $("#m-subir-foto");
