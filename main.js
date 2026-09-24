@@ -11,7 +11,7 @@
   function estadoInicial() {
     return {
       iniciado: false, pos: null, track: [], km: 0,
-      vistas: [], hitoFotos: [], destinosVistos: [], destinoFotos: []
+      vistas: [], hitoFotos: [], destinosVistos: [], destinoFotos: [], finalizado: false
     };
   }
 
@@ -141,15 +141,16 @@
     setTimeout(function () { if (mapaObj) mapaObj.invalidateSize(); }, 150);
   }
 
-  function cargarLeaflet() {
-    if (window.L) { dibujarMapa(); return; }
+  function cargarLeaflet(cb) {
+    cb = cb || dibujarMapa;
+    if (window.L) { cb(); return; }
     var css = document.createElement("link");
     css.rel = "stylesheet";
     css.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
     document.head.appendChild(css);
     var sc = document.createElement("script");
     sc.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
-    sc.onload = dibujarMapa;
+    sc.onload = cb;
     document.body.appendChild(sc);
   }
 
@@ -223,7 +224,25 @@
     });
 
     if (algo) { guardar(); siguienteEvento(); }
+    intentarFinal();
+  }
+
+  function intentarFinal() {
+    if (estado.finalizado) return false;
+    var todosVistos = CFG.hitos.every(function (h) {
+      return estado.vistas.indexOf(CFG.hitos.indexOf(h)) !== -1;
+    });
+    var destinosVistos = CFG.destinos.every(function (d) {
+      return estado.destinosVistos.indexOf(CFG.destinos.indexOf(d)) !== -1;
+    });
+    var tieneFotoUltimo = CFG.destinos.length > 0 &&
+      estado.destinoFotos.indexOf(CFG.destinos.length - 1) !== -1;
+    if (todosVistos && destinosVistos && tieneFotoUltimo) {
+      setTimeout(finalizar, 300);
+      return true;
+    }
     actualizarBotonTerminar();
+    return false;
   }
 
   function siguienteEvento() {
@@ -271,11 +290,7 @@
     var destinosVistos = CFG.destinos.every(function (d) {
       return estado.destinosVistos.indexOf(CFG.destinos.indexOf(d)) !== -1;
     });
-    var ultimoDestinoFoto = false;
-    if (CFG.destinos.length) {
-      ultimoDestinoFoto = estado.destinoFotos.indexOf(CFG.destinos.length - 1) !== -1;
-    }
-    $("#btn-terminar").classList.toggle("oculto", !(todosVistos && destinosVistos && !ultimoDestinoFoto));
+    $("#btn-terminar").classList.toggle("oculto", !(todosVistos && destinosVistos && !estado.finalizado));
   }
 
   /* ======================== FOTOS ======================== */
@@ -334,6 +349,7 @@
         setTimeout(finalizar, 300);
       } else {
         renderRecuerdos();
+        if (!intentarFinal()) actualizarBotonTerminar();
       }
     });
   }
@@ -357,6 +373,9 @@
   var mapaFinalListo = false;
 
   function finalizar() {
+    if (estado.finalizado) return;
+    estado.finalizado = true;
+    guardar();
     if (watcher !== null) { navigator.geolocation.clearWatch(watcher); watcher = null; }
     mostrarPantalla("pantalla-final");
     renderRecuerdos();
@@ -525,7 +544,12 @@
   function init() {
     aplicarTextos();
     bindear();
-    actualizarBotonTerminar();
+    if (estado.finalizado) {
+      mostrarPantalla("pantalla-final");
+      renderRecuerdos();
+      cargarLeaflet(dibujarMapaFinal);
+      return;
+    }
     if (estado.iniciado && estado.pos) {
       mostrarPantalla("pantalla-viaje");
       renderKm();
