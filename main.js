@@ -472,8 +472,17 @@
 
   function reiniciar() {
     if (watcher !== null) { navigator.geolocation.clearWatch(watcher); watcher = null; }
+    estado = estadoInicial();
+    guardar();
     try { localStorage.removeItem(LS_CLAVE); } catch (e) {}
-    limpiarFotos(function () { location.reload(); });
+    var recargado = false;
+    function recargar() {
+      if (recargado) return;
+      recargado = true;
+      location.reload();
+    }
+    limpiarFotos(recargar);
+    setTimeout(recargar, 500);
   }
 
   /* Atajo de prueba: tocar 5 veces la intro abre el próximo evento */
