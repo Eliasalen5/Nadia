@@ -19,6 +19,11 @@ body {
 
 .oculto { display: none !important; }
 
+#pantalla-portada {
+  flex-direction: column;
+  justify-content: center;
+}
+
 /* ==================== PORTADA ==================== */
 .pantalla {
   min-height: 100%;
