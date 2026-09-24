@@ -458,6 +458,15 @@
     }
   }
 
+  /* Atajo de prueba: tocar 5 veces el contador de km suma +30 km */
+  function sumarKmPrueba() {
+    estado.km += 30000;
+    guardar();
+    renderKm();
+    revisarEventos();
+    $("#modo-prueba").classList.remove("oculto");
+  }
+
   function bindear() {
     $("#btn-empezar").addEventListener("click", empezar);
 
@@ -479,6 +488,20 @@
 
     var lb = $("#lightbox");
     lb.addEventListener("click", function () { lb.classList.add("oculto"); });
+
+    var tapsKm = 0;
+    var timerKm = null;
+    var elKm = $(".mini-km");
+    if (elKm) {
+      elKm.addEventListener("click", function () {
+        tapsKm++;
+        if (timerKm) clearTimeout(timerKm);
+        timerKm = setTimeout(function () {
+          if (tapsKm >= 5) sumarKmPrueba();
+          tapsKm = 0;
+        }, 600);
+      });
+    }
 
     var tapsIntro = 0;
     var timerIntro = null;

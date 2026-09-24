@@ -177,6 +177,15 @@ body {
   font-weight: bold;
 }
 
+.modo-prueba {
+  text-align: center;
+  font-size: 12px;
+  font-style: italic;
+  letter-spacing: 1px;
+  color: #d65296;
+  font-weight: bold;
+}
+
 .buscando {
   text-align: center;
   padding: 40px 0;
