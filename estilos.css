@@ -106,6 +106,22 @@ body {
   color: var(--tinta);
 }
 
+.pwa-tip {
+  margin-top: 18px;
+  max-width: 460px;
+  width: 100%;
+  text-align: center;
+  font-size: 13px;
+  color: var(--tinta-suave);
+  font-style: italic;
+  line-height: 1.5;
+  background: var(--blanco);
+  border: 1.5px dashed var(--rosa);
+  border-radius: 14px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
 .boton {
   font-family: Georgia, "Times New Roman", serif;
   font-size: 17px;

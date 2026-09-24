@@ -2,6 +2,7 @@ const CONFIG = {
   titulo: "Feliz cumpleaños amor",
   frase: "Te Amo",
   textoBoton: "¿Agarramos ruta?",
+  textoPWATip: "💖 Para tenerla como app: tocá Compartir → Agregar a pantalla de inicio. Toca acá para cerrar.",
 
   textoEncabezado: "Nuestra aventura 🚗💨",
   textoIntroMapa: "Durante la travesía te voy dejando pistas y vos vas guardando recuerdos. ¡Disfrutá cada kilómetro! 🎁",
