@@ -175,7 +175,7 @@
         agregarTramo(estado.pos, p, d);
       },
       function (err) {
-        if (err && err.code === 1) mostrarErrorGps(CFG.textoSinGps);
+        if (err && err.code === 1) mostrarErrorGps(textoPermisoUbicacion());
         else if (!err || err.code !== 3) mostrarErrorGps("Todavía no tengo señal. Sigo intentando…");
       },
       { enableHighAccuracy: true, maximumAge: 3000, timeout: 20000 }
@@ -450,6 +450,25 @@
   }
 
   /* ======================== ERRORES GPS ======================== */
+  function esIOS() {
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  }
+
+  function esAndroid() {
+    return /Android/.test(navigator.userAgent);
+  }
+
+  function textoPermisoUbicacion() {
+    if (esIOS()) {
+      return "Activaste el permiso de ubicación en Safari: Ajustes → Privacidad y seguridad → Servicios de localización → Safari → “Mientras se usa”. Luego recargá la página y volvé a tocarlo.";
+    }
+    if (esAndroid()) {
+      return "Activaste el permiso de ubicación en el navegador: candado 🔒 junto a la URL → Configuración del sitio → Ubicación → Permitir. Luego recargá la página.";
+    }
+    return CFG.textoSinGps;
+  }
+
   function mostrarErrorGps(texto) {
     $("#t-aviso-gps").textContent = texto;
     $("#aviso-gps").classList.remove("oculto");
