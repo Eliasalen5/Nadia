@@ -111,20 +111,6 @@ body {
   color: var(--tinta);
 }
 
-.pwa-tip {
-  margin-top: 14px;
-  max-width: 380px;
-  width: 100%;
-  text-align: center;
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--tinta-suave);
-  background: transparent;
-  border: none;
-  padding: 0 16px;
-  cursor: pointer;
-}
-
 .boton {
   font-family: Georgia, "Times New Roman", serif;
   font-size: 17px;

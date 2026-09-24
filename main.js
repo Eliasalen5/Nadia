@@ -56,7 +56,6 @@
     $(".titulo").textContent = CFG.titulo;
     $(".frase").textContent = CFG.frase;
     $("#btn-empezar").textContent = CFG.textoBoton;
-    $("#pwa-tip").textContent = CFG.textoPWATip;
     $("#v-encabezado").textContent = CFG.textoEncabezado;
     $("#v-intro").textContent = CFG.textoIntroMapa;
     $("#v-buscando").textContent = CFG.textoBuscando;
@@ -479,29 +478,6 @@
     $("#aviso-gps").classList.add("oculto");
   }
 
-  /* ======================== PWA (agregar a inicio) ======================== */
-  function esInstalada() {
-    return window.navigator.standalone === true ||
-      (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
-  }
-
-  function esMovil() {
-    return (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) ||
-      (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
-  }
-
-  function mostrarAvisoPWA() {
-    if (esInstalada() || !esMovil()) return;
-    try { if (localStorage.getItem("pwaAviso") === "1") return; } catch (e) {}
-    var tip = $("#pwa-tip");
-    if (!tip) return;
-    tip.classList.remove("oculto");
-    tip.addEventListener("click", function () {
-      tip.classList.add("oculto");
-      try { localStorage.setItem("pwaAviso", "1"); } catch (e) {}
-    });
-  }
-
   /* ======================== FLUJO ======================== */
   function empezar() {
     estado.iniciado = true;
@@ -612,7 +588,6 @@
   function init() {
     aplicarTextos();
     bindear();
-    mostrarAvisoPWA();
     if (estado.finalizado) {
       mostrarPantalla("pantalla-final");
       renderRecuerdos();
