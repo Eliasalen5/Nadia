@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#F4F8F2">
+  <title>Feliz cumpleaños amor</title>
+  <link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+
+  <!-- ============ PORTADA ============ -->
+  <main id="pantalla-portada" class="pantalla activa">
+    <div class="carta">
+      <div class="torta" aria-hidden="true">🎂</div>
+      <h1 class="titulo"></h1>
+      <div class="corazon" aria-hidden="true"></div>
+      <p class="frase"></p>
+      <button class="boton" type="button" id="btn-empezar"></button>
+    </div>
+  </main>
+
+  <!-- ============ VIAJE ============ -->
+  <section id="pantalla-viaje" class="pantalla viaje oculto">
+    <div class="encabezado">
+      <span id="v-encabezado"></span>
+      <button id="btn-terminar" class="boton-chico oculto"></button>
+    </div>
+
+    <div class="intro-card"><p id="v-intro"></p></div>
+
+    <div class="mini-km"><span id="v-km">0,0</span> km recorridos</div>
+
+    <div class="aviso-gps oculto" id="aviso-gps">
+      <p id="t-aviso-gps"></p>
+      <button id="btn-reintentar" class="boton-chico"></button>
+    </div>
+
+    <div id="v-buscando" class="buscando"></div>
+
+    <div id="mapa-wrap" class="oculto mapa-wrap">
+      <div id="mapa"></div>
+      <p class="mini-aviso">Recorrido en tiempo real</p>
+    </div>
+
+    <button id="btn-subir-recuerdo" class="boton"></button>
+  </section>
+
+  <!-- ============ MODAL EVENTO (pista / destino) ============ -->
+  <div id="modal-evento" class="modal">
+    <div class="modal-carta">
+      <span class="modal-sello" id="m-sello">🎁 PISTA</span>
+      <h2 id="m-titulo"></h2>
+      <p id="m-texto"></p>
+      <button id="m-subir-foto" class="boton oculto"></button>
+      <button id="m-cerrar" class="boton-chico"></button>
+    </div>
+  </div>
+
+  <input type="file" id="input-foto" accept="image/*" capture="environment" hidden>
+
+  <!-- ============ FINAL ============ -->
+  <section id="pantalla-final" class="pantalla final oculto">
+    <div class="encabezado"><span class="titulo-final"></span></div>
+    <p id="f-mensaje" class="frase"></p>
+    <div id="mapa-final-wrap" class="mapa-wrap oculto">
+      <div id="mapa-final"></div>
+    </div>
+    <div id="galeria" class="galeria"></div>
+    <button id="btn-reiniciar" class="boton"></button>
+  </section>
+
+  <!-- ============ LIGHTBOX ============ -->
+  <div id="lightbox" class="lightbox oculto">
+    <img id="lightbox-img" alt="Recuerdo">
+  </div>
+
+  <script src="config.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
