@@ -10,15 +10,45 @@
   /* ======================== ESTADO ======================== */
   function estadoInicial() {
     return {
-      iniciado: false, pos: null, track: [], km: 0,
-      vistas: [], hitoFotos: [], destinosVistos: [], destinoFotos: [], respuestas: [], finalizado: false
+      iniciado: false, pos: null, track: [], km: 0, saltos: [],
+      vistas: [], hitoFotos: [], destinosVistos: [], destinoFotos: [], respuestas: [],
+      pendientes: [], finalizado: false
     };
   }
 
+  var ARRAYS = ["track", "saltos", "vistas", "hitoFotos", "destinosVistos", "destinoFotos", "respuestas", "pendientes"];
+
   function cargar() {
+    var base = estadoInicial();
     try {
-      return Object.assign(estadoInicial(), JSON.parse(localStorage.getItem(LS_CLAVE)));
+      var guardado = JSON.parse(localStorage.getItem(LS_CLAVE));
+      if (guardado && typeof guardado === "object") {
+        Object.keys(base).forEach(function (k) {
+          if (guardado[k] !== undefined) base[k] = guardado[k];
+        });
+      }
     } catch (e) { return estadoInicial(); }
+    ARRAYS.forEach(function (k) {
+      if (!Array.isArray(base[k])) base[k] = [];
+    });
+    if (!base.pos || typeof base.pos.lat !== "number" || typeof base.pos.lon !== "number") base.pos = null;
+    if (typeof base.km !== "number" || !isFinite(base.km) || base.km < 0) base.km = 0;
+    return base;
+  }
+
+  /* El track se dibuja como tramos separados: un "salto" (pausa larga o teletransporte
+     del GPS) suma kilómetros pero NO dibuja una recta falsa entre dos puntos lejanos. */
+  function tramosTrack() {
+    var tramos = [];
+    var ini = 0;
+    estado.saltos.forEach(function (i) {
+      if (i > ini && i < estado.track.length) {
+        tramos.push(estado.track.slice(ini, i));
+        ini = i;
+      }
+    });
+    if (ini < estado.track.length) tramos.push(estado.track.slice(ini));
+    return tramos;
   }
 
   function guardar() {
@@ -113,6 +143,7 @@
 
   function dibujarMapa() {
     if (!window.L || !estado.pos) return;
+    if (estado.finalizado) return;
 
     $("#v-buscando").classList.add("oculto");
     var wrap = $("#mapa-wrap");
@@ -128,10 +159,12 @@
     if (capaDinamica) mapaObj.removeLayer(capaDinamica);
     capaDinamica = window.L.layerGroup();
 
-    if (estado.track.length > 1) {
-      var pts = estado.track.map(function (p) { return [p.lat, p.lon]; });
-      window.L.polyline(pts, { color: "#a9c3a0", weight: 5, opacity: 0.9 }).addTo(capaDinamica);
-    }
+    tramosTrack().forEach(function (tramo) {
+      if (tramo.length > 1) {
+        var pts = tramo.map(function (p) { return [p.lat, p.lon]; });
+        window.L.polyline(pts, { color: "#a9c3a0", weight: 5, opacity: 0.9 }).addTo(capaDinamica);
+      }
+    });
     window.L.circleMarker([estado.pos.lat, estado.pos.lon],
       { radius: 9, color: "#ffffff", fillColor: "#d65296", fillOpacity: 1, weight: 3 }).addTo(capaDinamica);
 
@@ -140,22 +173,36 @@
     setTimeout(function () { if (mapaObj) mapaObj.invalidateSize(); }, 150);
   }
 
+  var cargandoLeaflet = false;
+  var alCargarLeaflet = [];
+
   function cargarLeaflet(cb) {
     cb = cb || dibujarMapa;
     if (window.L) { cb(); return; }
+    alCargarLeaflet.push(cb);
+    if (cargandoLeaflet) return;
+    cargandoLeaflet = true;
     var css = document.createElement("link");
     css.rel = "stylesheet";
     css.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
     document.head.appendChild(css);
     var sc = document.createElement("script");
     sc.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
-    sc.onload = cb;
+    sc.onload = function () {
+      var pendientes = alCargarLeaflet;
+      alCargarLeaflet = [];
+      cargandoLeaflet = false;
+      pendientes.forEach(function (f) { f(); });
+    };
     document.body.appendChild(sc);
   }
 
   /* ======================== GPS ======================== */
   var watcher = null;
   var ultimoProceso = 0;
+  var ocultoEn = 0;
+  var PAUSA_LARGA = 15000;
+  var SALTO_METROS = 2000;
 
   function iniciarGps() {
     if (watcher !== null) return;
@@ -172,7 +219,11 @@
         ultimoProceso = ahora;
         var d = haversine(estado.pos, p);
         if (d < 15) return;
-        agregarTramo(estado.pos, p, d);
+        /* Si la app estuvo en segundo plano o el GPS se teletransportó, el tramo
+           recta no se dibuja: los kilómetros sí se suman, pero sin mentir en el mapa. */
+        var salto = (ocultoEn > 0 && ahora - ocultoEn > PAUSA_LARGA) || d > SALTO_METROS;
+        ocultoEn = 0;
+        agregarTramo(estado.pos, p, d, salto);
       },
       function (err) {
         if (err && err.code === 1) mostrarErrorGps(textoPermisoUbicacion());
@@ -182,11 +233,17 @@
     );
   }
 
-  function agregarTramo(desde, hasta, d) {
+  function agregarTramo(desde, hasta, d, salto) {
     estado.pos = hasta;
     estado.km += d;
     estado.track.push(hasta);
-    if (estado.track.length > 6000) estado.track.splice(0, estado.track.length - 6000);
+    if (salto) estado.saltos.push(estado.track.length - 1);
+    if (estado.track.length > 6000) {
+      var sobra = estado.track.length - 6000;
+      estado.track.splice(0, sobra);
+      estado.saltos = estado.saltos.map(function (i) { return i - sobra; })
+        .filter(function (i) { return i > 0; });
+    }
     guardar();
     renderKm();
     dibujarMapa();
@@ -199,27 +256,41 @@
   }
 
   /* ======================== EVENTOS (pistas y destinos) ======================== */
-  var cola = [];
   var modalAbierto = false;
   var contextoFoto = null;
   var eventoActual = null;
+
+  function yaPendiente(tipo, idx) {
+    return estado.pendientes.some(function (p) { return p.tipo === tipo && p.idx === idx; });
+  }
+
+  function encolar(tipo, idx) {
+    if (yaPendiente(tipo, idx)) return false;
+    estado.pendientes.push({ tipo: tipo, idx: idx });
+    return true;
+  }
+
+  function marcarVisto(ev) {
+    if (!ev) return;
+    if (ev.tipo === "pista") {
+      if (estado.vistas.indexOf(ev.idx) === -1) estado.vistas.push(ev.idx);
+    } else if (estado.destinosVistos.indexOf(ev.idx) === -1) {
+      estado.destinosVistos.push(ev.idx);
+    }
+  }
 
   function revisarEventos() {
     var algo = false;
 
     CFG.hitos.forEach(function (h, i) {
       if (estado.vistas.indexOf(i) === -1 && estado.km >= h.km * 1000) {
-        estado.vistas.push(i);
-        cola.push({ tipo: "pista", idx: i });
-        algo = true;
+        if (encolar("pista", i)) algo = true;
       }
     });
 
     CFG.destinos.forEach(function (d, i) {
       if (estado.destinosVistos.indexOf(i) === -1 && estado.km >= d.km * 1000) {
-        estado.destinosVistos.push(i);
-        cola.push({ tipo: "destino", idx: i });
-        algo = true;
+        if (encolar("destino", i)) algo = true;
       }
     });
 
@@ -229,6 +300,8 @@
 
   function intentarFinal() {
     if (estado.finalizado) return false;
+    /* Con la app en segundo plano no se finaliza nada: se retoma al volver. */
+    if (document.hidden) return false;
     var todosVistos = CFG.hitos.every(function (h) {
       return estado.vistas.indexOf(CFG.hitos.indexOf(h)) !== -1;
     });
@@ -246,8 +319,9 @@
   }
 
   function siguienteEvento() {
-    if (modalAbierto || cola.length === 0) return;
-    abrirEvento(cola.shift());
+    if (modalAbierto || estado.pendientes.length === 0) return;
+    if (document.hidden) return;
+    abrirEvento(estado.pendientes[0]);
   }
 
   function abrirEvento(ev) {
@@ -293,10 +367,20 @@
         guardar();
       }
     }
+    /* El evento recién se da por visto cuando se cierra: si la app se suspende
+       con el modal abierto, sigue en la cola y reaparece al volver. */
+    for (var i = estado.pendientes.length - 1; i >= 0; i--) {
+      var p = estado.pendientes[i];
+      if (eventoActual && p.tipo === eventoActual.tipo && p.idx === eventoActual.idx) {
+        estado.pendientes.splice(i, 1);
+      }
+    }
+    marcarVisto(eventoActual);
     modalAbierto = false;
     contextoFoto = null;
     eventoActual = null;
     $("#modal-evento").classList.remove("abierto");
+    guardar();
     siguienteEvento();
   }
 
@@ -362,7 +446,9 @@
 
       cerrarEvento();
 
-      if (esUltimoDestino) {
+      /* Si se tomó la foto del último destino pero la app quedó en segundo plano,
+         no se finaliza ahora: se retoma sola al volver a abrir la app. */
+      if (esUltimoDestino && !document.hidden) {
         setTimeout(finalizar, 300);
       } else {
         renderRecuerdos();
@@ -400,7 +486,8 @@
   }
 
   function dibujarMapaFinal() {
-    if (!window.L) return;
+    if (!window.L) { cargarLeaflet(dibujarMapaFinal); return; }
+    if (mapaFinalListo) return;
     var wrap = $("#mapa-final-wrap");
     wrap.classList.remove("oculto");
 
@@ -413,10 +500,12 @@
 
     var grupo = window.L.layerGroup().addTo(mapaFinal);
 
-    if (estado.track.length > 1) {
-      var pts = estado.track.map(function (p) { return [p.lat, p.lon]; });
-      window.L.polyline(pts, { color: "#e8a0b4", weight: 5, opacity: 0.9 }).addTo(grupo);
-    }
+    tramosTrack().forEach(function (tramo) {
+      if (tramo.length > 1) {
+        var pts = tramo.map(function (p) { return [p.lat, p.lon]; });
+        window.L.polyline(pts, { color: "#e8a0b4", weight: 5, opacity: 0.9 }).addTo(grupo);
+      }
+    });
 
     var bounds = [];
     estado.track.forEach(function (p) { bounds.push([p.lat, p.lon]); });
@@ -440,6 +529,7 @@
         mapaFinal.fitBounds(bounds, { padding: [40, 40] });
       }
       setTimeout(function () { if (mapaFinal) mapaFinal.invalidateSize(); }, 150);
+      mapaFinalListo = true;
     });
   }
 
@@ -580,7 +670,17 @@
   }
 
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden) guardar();
+    if (document.hidden) {
+      ocultoEn = Date.now();
+      guardar();
+      return;
+    }
+    /* Al volver: se reabre lo que quedó pendiente y se retoma la finalización
+       que se había quedado esperando en segundo plano. */
+    if (estado.finalizado || !estado.iniciado) return;
+    if (estado.pos) dibujarMapa();
+    siguienteEvento();
+    intentarFinal();
   });
   window.addEventListener("pagehide", guardar);
 
@@ -600,6 +700,8 @@
       cargarLeaflet();
       iniciarGps();
       renderRecuerdos();
+      /* Eventos que quedaron a medio ver antes de que la app se suspendiera. */
+      siguienteEvento();
     }
   }
 
