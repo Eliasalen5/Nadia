@@ -36,15 +36,14 @@ const CONFIG = {
   ],
 
   hitos: [
-    { km: 20, titulo: "Ahora vamos al mejor destino", mensaje: "Este es el lugar donde más quiero que lo disfrutes y te relajes al 100%. Preparate, que viene lo mejor. 💫", foto: true },
-    { km: 30, titulo: "¿Dónde crees que vamos?", mensaje: "Es un lugar que te gusta ir mucho. ¡Paciencia, tomemos unos mates! 🧉", foto: true, input: true, placeholder: "Escribí tu respuesta…" },
-    { km: 100, titulo: "Estamos cerca", mensaje: "Vas a poder gastar platita 💸", foto: true },
-    { km: 145, titulo: "Un lugar sin reloj", mensaje: "No hay paredes, ni reloj, ni nada que se prende. Solo un techo de tela, el fuego y vos. 🌌", foto: true }
+    { km: 30, titulo: "¿Dónde pensas que vamos?", mensaje: "Vamos a ir a un lugar solo para hacer un poco de tiempo. Hacemos mates?", foto: true, input: true, placeholder: "Escribí tu respuesta…" },
+    { km: 100, titulo: "Estamos cerca", mensaje: "Es uno de tus lugares favoritos, donde podés gastar mucha platita.", foto: true, input: true, placeholder: "Escribí tu respuesta…" },
+    { km: 145, titulo: "Un lugar sin reloj", mensaje: "No hay paredes, ni reloj, solo un techo de tela, el fuego y vos. 🌌", foto: true, input: true, placeholder: "Escribí tu respuesta…" }
   ],
 
   destinos: [
-    { km: 125, titulo: "¡Llegamos!", mensaje: "Tu regalo es elegirte cualquier cosa del shopping pero solo una, ¡pensalo bien!! 🛍️", foto: true },
-    { km: 187, titulo: "El mejor destino", mensaje: "Llegamos 💫 Acá termina el viaje y empieza lo mejor: el lugar donde te relajás al 100%, tal como te prometí a los 20 km. Vos acomodate y la fogata la prendemos nosotros. 🔥", foto: true }
+    { km: 125, titulo: "¡Llegamos!", mensaje: "Tu regalo es elegirte solo una cosa del shopping, pensalo muy bien.", foto: true },
+    { km: 187, titulo: "El mejor destino", mensaje: "Llegamos. Esta vez no vas a dormir entre cuatro paredes. Prepara las ganas de desconectar, y solo disfuta.", foto: true }
     /* TODO: falta la parada que sigue después del glamping. Decime km, si es pista
        o destino, título y mensaje, y la agregás acá. El recorrido no se termina solo:
        cuando ya vio todas las paradas le aparece el botón para terminarlo. */
