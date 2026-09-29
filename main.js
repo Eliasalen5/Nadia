@@ -2,71 +2,267 @@
   "use strict";
 
   var $ = function (s) { return document.querySelector(s); };
-  var LS_CLAVE = "cumpleAventura_v3";
+  var $$ = function (s) { return Array.prototype.slice.call(document.querySelectorAll(s)); };
+  var LS_CLAVE = "cumpleAventura_v4";
+  var LS_CLAVE_VIEJA = "cumpleAventura_v3";
+  var LS_HISTORIAL = "cumpleAventura_recorridos";
+  var HISTORIAL_MAX = 8;         /* cuántos recorridos terminados se conservan */
+  var TRACK_ARCHIVO_M = 100;     /* el track guardado se adelgaza a 1 punto cada 100 m */
   var CFG = (typeof CONFIG !== "undefined") ? CONFIG : null;
 
   if (!CFG) { console.error("config.js no cargó"); return; }
 
-  /* ======================== ESTADO ======================== */
+  /* ======================== ESTADO ========================
+     Cada evento se identifica por su km y nunca por su posición en la lista.
+     Si mañana se agrega, se corre o se borra una parada, los índices cambian
+     pero los kilómetros no, así que el progreso guardado sigue apuntando a lo
+     que estaba apontando. Para traducir lo que guardaban las versiones viejas
+     (que sí usaban índices) hace falta saber cómo estaba cada lista en ese
+     momento: eso es FIRMA_VIEJA. */
+  var FIRMA_VIEJA = { hitos: [30, 100], destinos: [125] };
+  /* La versión que permitió varias fotos por parada también guardaba el índice de
+     la parada, pero con la lista de cuatro pistas: un índice viejo puede tener dos
+     lecturas distintas (kmDeFoto resuelve cuál con lo que el recorrido ya registró). */
+  var FIRMA_KM = { hitos: [20, 30, 100, 145], destinos: [125, 187] };
+
+  function nuevoId() {
+    return "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
   function estadoInicial() {
     return {
+      id: nuevoId(),
       iniciado: false, pos: null, track: [], km: 0, saltos: [], huecosResueltos: [],
-      vistas: [], hitoFotos: [], destinosVistos: [], destinoFotos: [], respuestas: [],
-      pendientes: [], finalizado: false
+      vistas: [], hitoFotos: [], destinosVistos: [], destinoFotos: [], respuestas: {},
+      pendientes: [], finalizado: false, firma: null
     };
   }
 
-  var ARRAYS = ["track", "saltos", "huecosResueltos", "vistas", "hitoFotos", "destinosVistos", "destinoFotos", "respuestas", "pendientes"];
+
+  var ARRAYS = ["track", "saltos", "huecosResueltos", "vistas", "hitoFotos", "destinosVistos", "destinoFotos", "pendientes"];
+
+  function firmaActual() {
+    return { hitos: CFG.hitos.map(kmDe), destinos: CFG.destinos.map(kmDe) };
+  }
+
+  function kmDe(e) { return e.km; }
+
+  function existeEn(lista, k) {
+    for (var i = 0; i < lista.length; i++) if (lista[i].km === k) return true;
+    return false;
+  }
+
+  /* Traduce índices viejos a kilómetros y descarta los que ya no están en el
+     config (paradas borradas) o están repetidos. */
+  function aKms(lista, valores, vieja, legacy) {
+    if (!Array.isArray(valores)) return [];
+    var vistos = {};
+    return valores.map(function (v) {
+      return (legacy && typeof v === "number") ? vieja[v] : v;
+    }).filter(function (k) {
+      if (typeof k !== "number" || !isFinite(k) || vistos[k]) return false;
+      if (!existeEn(lista, k)) return false;
+      vistos[k] = true;
+      return true;
+    });
+  }
+
+  function migrar(e, firmaGuardada, legacy) {
+    var fh = (firmaGuardada && Array.isArray(firmaGuardada.hitos)) ? firmaGuardada.hitos : FIRMA_VIEJA.hitos;
+    var fd = (firmaGuardada && Array.isArray(firmaGuardada.destinos)) ? firmaGuardada.destinos : FIRMA_VIEJA.destinos;
+
+    e.vistas = aKms(CFG.hitos, e.vistas, fh, legacy);
+    e.hitoFotos = aKms(CFG.hitos, e.hitoFotos, fh, legacy);
+    e.destinosVistos = aKms(CFG.destinos, e.destinosVistos, fd, legacy);
+    e.destinoFotos = aKms(CFG.destinos, e.destinoFotos, fd, legacy);
+
+    e.pendientes = (Array.isArray(e.pendientes) ? e.pendientes : []).map(function (p) {
+      if (!p || typeof p !== "object") return null;
+      var esPista = p.tipo === "pista";
+      var lista = esPista ? CFG.hitos : CFG.destinos;
+      var vieja = esPista ? fh : fd;
+      var nuevo = { tipo: p.tipo, km: legacy ? vieja[p.idx] : p.km };
+      if (p.lat != null) nuevo.lat = p.lat;
+      if (p.lon != null) nuevo.lon = p.lon;
+      return existeEn(lista, nuevo.km) ? nuevo : null;
+    }).filter(Boolean);
+
+    /* Las respuestas viejas eran un array indexado por posición del hito. */
+    var r = {};
+    Object.keys(e.respuestas || {}).forEach(function (clave) {
+      var nuevo = (/^\d+$/.test(clave) && legacy) ? fh[+clave] : +clave;
+      if (existeEn(CFG.hitos, nuevo)) r[nuevo] = e.respuestas[clave];
+    });
+    e.respuestas = r;
+
+    e.firma = firmaActual();
+  }
 
   function cargar() {
     var base = estadoInicial();
-    try {
-      var guardado = JSON.parse(localStorage.getItem(LS_CLAVE));
-      if (guardado && typeof guardado === "object") {
-        Object.keys(base).forEach(function (k) {
-          if (guardado[k] !== undefined) base[k] = guardado[k];
-        });
-      }
-    } catch (e) { return estadoInicial(); }
+    var crudo = null, eraViejo = false;
+    try { crudo = localStorage.getItem(LS_CLAVE); } catch (e) {}
+    if (!crudo) {
+      try { crudo = localStorage.getItem(LS_CLAVE_VIEJA); eraViejo = !!crudo; } catch (e) {}
+    }
+    var guardado = null;
+    try { guardado = crudo ? JSON.parse(crudo) : null; } catch (e) {}
+
+    if (guardado && typeof guardado === "object") {
+      Object.keys(base).forEach(function (k) {
+        if (guardado[k] !== undefined) base[k] = guardado[k];
+      });
+    }
     ARRAYS.forEach(function (k) {
       if (!Array.isArray(base[k])) base[k] = [];
     });
+    if (!base.respuestas || typeof base.respuestas !== "object") base.respuestas = {};
     if (!base.pos || typeof base.pos.lat !== "number" || typeof base.pos.lon !== "number") base.pos = null;
     if (typeof base.km !== "number" || !isFinite(base.km) || base.km < 0) base.km = 0;
+    /* Un recorrido guardado antes de que existiera el historial no tiene id
+       propio: se le da uno ahora, para que sus fotos sigan siendo de este. */
+    if (typeof base.id !== "string" || !base.id) base.id = nuevoId();
+
+    migrar(base, guardado && guardado.firma, eraViejo || !(guardado && guardado.firma));
+    if (eraViejo) {
+      escribir(base);
+      try { localStorage.removeItem(LS_CLAVE_VIEJA); } catch (e) {}
+    }
     return base;
   }
 
   /* El track se dibuja como tramos separados: un "salto" (pausa larga o teletransporte
-     del GPS) suma kilómetros pero NO dibuja una recta falsa entre dos puntos lejanos. */
-  function tramosTrack() {
+     del GPS) suma kilómetros pero NO dibuja una recta falsa entre dos puntos lejanos.
+     Recibe el recorrido a dibujar para que valga también con los ya terminados. */
+  function tramosTrack(t) {
+    t = t || estado;
     var tramos = [];
     var ini = 0;
-    estado.saltos.forEach(function (i) {
-      if (i > ini && i < estado.track.length) {
-        tramos.push(estado.track.slice(ini, i));
+    t.saltos.forEach(function (i) {
+      if (i > ini && i < t.track.length) {
+        tramos.push(t.track.slice(ini, i));
         ini = i;
       }
     });
-    if (ini < estado.track.length) tramos.push(estado.track.slice(ini));
+    if (ini < t.track.length) tramos.push(t.track.slice(ini));
     return tramos;
   }
 
   /* Cada salto deja un tramo sin medir: el par de puntos justo antes y justo
      después. No se dibujan como recta, se piden como ruta real (ver OSRM). */
-  function huecos() {
+  function huecos(t) {
+    t = t || estado;
     var out = [];
-    estado.saltos.forEach(function (i) {
-      if (i > 0 && i < estado.track.length) out.push([estado.track[i - 1], estado.track[i]]);
+    t.saltos.forEach(function (i) {
+      if (i > 0 && i < t.track.length) out.push([t.track[i - 1], t.track[i]]);
     });
     return out;
   }
 
-  function guardar() {
-    try { localStorage.setItem(LS_CLAVE, JSON.stringify(estado)); }
-    catch (e) { console.warn("No se pudo guardar el progreso:", e); }
+  function escribir(e) {
+    try { localStorage.setItem(LS_CLAVE, JSON.stringify(e)); }
+    catch (err) { console.error("No se pudo guardar el progreso:", err); }
   }
 
+  function guardar() { escribir(estado); }
+
   var estado = cargar();
+
+  /* ======================== RECORRIDOS GUARDADOS ========================
+     Cuando un recorrido termina queda guardado en el teléfono y se puede volver
+     a abrir cuando se quiera. El recorrido en curso vive aparte, así que empezar
+     uno nuevo no pisa el anterior ni sus recuerdos. */
+  function leerHistorial() {
+    try {
+      var l = localStorage.getItem(LS_HISTORIAL);
+      l = l ? JSON.parse(l) : null;
+      if (!Array.isArray(l)) return [];
+      return l.filter(function (t) {
+        return t && typeof t.id === "string" && Array.isArray(t.track);
+      });
+    } catch (e) { return []; }
+  }
+
+  function escribirHistorial(lista) {
+    while (lista.length > HISTORIAL_MAX) lista.pop();
+    while (true) {
+      try { localStorage.setItem(LS_HISTORIAL, JSON.stringify(lista)); return true; }
+      catch (e) {
+        /* Si no hay lugar se van los más viejos, pero el recorrido nuevo
+           nunca se pierde: eso es lo que se acaba de hacer. */
+        if (lista.length <= 1) return false;
+        lista.pop();
+      }
+    }
+  }
+
+  function enHistorial(id) {
+    var l = leerHistorial();
+    for (var i = 0; i < l.length; i++) if (l[i].id === id) return true;
+    return false;
+  }
+
+  /* Un track de tres horas son miles de puntos: guardados así en cada recorrido
+     llenan el almacenamiento y dejan de guardarse los kilómetros, las pistas y
+     todo lo demás. Se guardan adelgazados, y los puntos que cortan un tramo sin
+     medir se conservan siempre para que esos tramos sigan emparejando bien. */
+  function adelgazarTrack(track, saltos, minM) {
+    var nuevos = [], nuevosSaltos = [], esSalto = {}, i;
+    if (!track.length) return { track: [], saltos: [] };
+    for (i = 0; i < saltos.length; i++) esSalto[saltos[i]] = true;
+    nuevos.push(track[0]);
+    for (i = 1; i < track.length; i++) {
+      var esUltimo = i === track.length - 1;
+      if (esUltimo || esSalto[i] ||
+          haversine(nuevos[nuevos.length - 1], track[i]) >= minM) {
+        nuevos.push(track[i]);
+        if (esSalto[i]) nuevosSaltos.push(nuevos.length - 1);
+      }
+    }
+    return { track: nuevos, saltos: nuevosSaltos };
+  }
+
+  function archivar() {
+    if (!estado.finalizado) return false;
+    if (enHistorial(estado.id)) return false;
+    var lista = leerHistorial();
+    var delgado = adelgazarTrack(estado.track, estado.saltos, TRACK_ARCHIVO_M);
+    lista.unshift({
+      id: estado.id,
+      cerrado: new Date().toISOString(),
+      km: estado.km,
+      pos: estado.pos,
+      track: delgado.track,
+      saltos: delgado.saltos,
+      huecosResueltos: estado.huecosResueltos,
+      respuestas: estado.respuestas,
+      vistas: estado.vistas,
+      destinosVistos: estado.destinosVistos
+    });
+    if (!escribirHistorial(lista)) {
+      console.error("No se pudo guardar el recorrido terminado");
+      return false;
+    }
+    /* Las fotos más viejas no saben a qué recorrido pertenecen: son de éste y se
+       lo anotamos ahora, así no quedan colgando del recorrido que empiece después. */
+    sellarFotos(estado.id, podarFotosSueltas);
+    return true;
+  }
+
+  /* Si el historial se llena y se van los recorridos más viejos, sus recuerdos se
+     van con ellos: si no, quedan ocupando lugar en el navegador sin que haya forma
+     de verlos ni de borrarlos. */
+  function podarFotosSueltas() {
+    var vivos = {};
+    vivos[estado.id] = true;
+    leerHistorial().forEach(function (t) { vivos[t.id] = true; });
+    recorrerFotos("readwrite", function (st, r) {
+      (r.result || []).forEach(function (f) {
+        if (f.id == null || f.recorrido == null || vivos[f.recorrido]) return;
+        st["delete"](f.id);
+      });
+    });
+  }
 
   /* ======================== UTILIDADES ======================== */
   function formatearKm(metros) {
@@ -86,64 +282,136 @@
 
   /* ======================== PANTALLAS ======================== */
   function mostrarPantalla(id) {
-    ["pantalla-portada", "pantalla-viaje", "pantalla-final"].forEach(function (t) {
+    ["pantalla-portada", "pantalla-viaje", "pantalla-historial", "pantalla-final"].forEach(function (t) {
       var el = $("#" + t);
       if (el) el.classList.toggle("oculto", t !== id);
     });
   }
 
   function aplicarTextos() {
-    $(".titulo").textContent = CFG.titulo;
-    $(".frase").textContent = CFG.frase;
-    $("#btn-empezar").textContent = CFG.textoBoton;
-    $("#v-encabezado").textContent = CFG.textoEncabezado;
-    $("#v-intro").textContent = CFG.textoIntroMapa;
-    $("#v-buscando").textContent = CFG.textoBuscando;
-    $("#btn-reintentar").textContent = CFG.textoReintentar;
-    $("#m-subir-foto").textContent = CFG.textoSubirFoto;
-    $("#m-cerrar").textContent = CFG.textoSeguir;
-    $("#btn-terminar").textContent = CFG.textoTerminar;
-    $("#f-mensaje").textContent = CFG.textoFinal;
-    $("#btn-reiniciar").textContent = CFG.textoReiniciar;
+    /* Un config.js viejo cacheado sin algún texto no puede dejar "undefined"
+       escrito en pantalla. */
+    $(".titulo").textContent = CFG.titulo || "";
+    $(".frase").textContent = CFG.frase || "";
+    $("#btn-empezar").textContent = CFG.textoBoton || "Empezar";
+    $("#v-encabezado").textContent = CFG.textoEncabezado || "";
+    $("#v-intro").textContent = CFG.textoIntroMapa || "";
+    $("#v-buscando").textContent = CFG.textoBuscando || "";
+    $("#btn-reintentar").textContent = CFG.textoReintentar || "Reintentar";
+    $("#m-subir-foto").textContent = CFG.textoSubirFoto || "Subir recuerdo 📸";
+    $("#m-cerrar").textContent = CFG.textoSeguir || "Seguir";
+    $("#btn-terminar").textContent = CFG.textoTerminar || "Terminar recorrido 🏁";
+    $("#f-mensaje").textContent = CFG.textoFinal || "";
+    $("#btn-reiniciar").textContent = CFG.textoReiniciar || "Empezar de nuevo 🔄";
+    $("#btn-volver").textContent = CFG.textoVolver || "Volver";
+    $("#h-volver").textContent = CFG.textoVolver || "Volver";
+    $("#h-titulo").textContent = CFG.textoHistorial || "Recorridos guardados";
+    $("#h-vacio").textContent = CFG.textoSinRecorridos || "Todavía no hay recorridos terminados.";
+    $("#c-titulo").textContent = CFG.textoConfirmar || "¿Empezar de nuevo?";
+    $("#c-si").textContent = CFG.textoSi || "Sí, dale";
+    $("#c-no").textContent = CFG.textoNo || "Ahora no";
+  }
+
+  /* Botones de acceso al historial: si no hay recorridos terminados no se
+     muestran, para que la portada siga siendo la del regalo. */
+  function actualizarBotonesRecorridos() {
+    var n = leerHistorial().length;
+    $$(".js-recorridos").forEach(function (b) {
+      b.classList.toggle("oculto", n === 0);
+      b.textContent = (CFG.textoRecorridos || "Recorridos guardados ({n})").replace("{n}", n);
+    });
   }
 
   /* ======================== INDEXEDDB (fotos) ======================== */
   var DB = null;
+  var dbFallo = false;
 
+  /* El callback siempre se llama, y siempre con si se pudo o no: antes, si la
+     base no abría, el contador de fotos y el guardado quedaban esperando para
+     siempre sin decir nada. */
   function abrirDb(cb) {
-    if (DB) { cb(); return; }
-    var req = indexedDB.open("cumple_aventura", 1);
+    if (DB) { cb(true); return; }
+    if (dbFallo) { cb(false); return; }
+    var req;
+    try { req = indexedDB.open("cumple_aventura", 1); }
+    catch (e) { dbFallo = true; cb(false); return; }
+    var dicho = false;
+    function listo(ok) { if (dicho) return; dicho = true; cb(ok); }
     req.onupgradeneeded = function () {
       if (!req.result.objectStoreNames.contains("fotos")) {
         req.result.createObjectStore("fotos", { keyPath: "id", autoIncrement: true });
       }
     };
-    req.onsuccess = function () { DB = req.result; cb(); };
-    req.onerror = function () { console.error("IndexedDB no disponible"); };
+    req.onsuccess = function () {
+      DB = req.result;
+      /* Otra pestaña que actualiza la base: esta se cierra para no trabarla. */
+      DB.onversionchange = function () { DB.close(); DB = null; };
+      listo(true);
+    };
+    /* Otra pestaña con una versión vieja deja la apertura esperando para
+       siempre: sin esto, en esa página ninguna foto se guarda ni se cuenta. */
+    req.onblocked = function () { dbFallo = true; console.error("IndexedDB bloqueada por otra pestaña"); listo(false); };
+    req.onerror = function () { dbFallo = true; console.error("IndexedDB no disponible"); listo(false); };
   }
 
   function guardarFoto(foto, cb) {
-    abrirDb(function () {
-      var tx = DB.transaction("fotos", "readwrite");
+    abrirDb(function (ok) {
+      if (!ok) { cb(false); return; }
+      var tx;
+      try { tx = DB.transaction("fotos", "readwrite"); }
+      catch (e) { cb(false); return; }
       tx.objectStore("fotos").add(foto);
-      tx.oncomplete = function () { if (cb) cb(); };
+      tx.oncomplete = function () { cb(true); };
+      tx.onerror = tx.onabort = function () { console.error("No se pudo guardar la foto", tx.error); cb(false); };
     });
   }
 
   function todasFotos(cb) {
-    abrirDb(function () {
-      var tx = DB.transaction("fotos", "readonly");
+    abrirDb(function (ok) {
+      if (!ok) { cb([]); return; }
+      var tx;
+      try { tx = DB.transaction("fotos", "readonly"); }
+      catch (e) { cb([]); return; }
       var r = tx.objectStore("fotos").getAll();
       r.onsuccess = function () { cb(r.result || []); };
+      r.onerror = function () { cb([]); };
     });
   }
 
-  function limpiarFotos(cb) {
-    abrirDb(function () {
-      var tx = DB.transaction("fotos", "readwrite");
-      tx.objectStore("fotos").clear();
+  /* Recorre todas las fotos dentro de una transacción de escritura. */
+  function recorrerFotos(tipo, porCada, cb) {
+    abrirDb(function (ok) {
+      if (!ok) { if (cb) cb(); return; }
+      var tx;
+      try { tx = DB.transaction("fotos", tipo); }
+      catch (e) { if (cb) cb(); return; }
+      var st = tx.objectStore("fotos");
+      var r = st.getAll();
+      r.onsuccess = function () {
+        try { porCada(st, r); }
+        catch (e) { console.error("No se pudo tocar la base de fotos:", e); }
+      };
       tx.oncomplete = function () { if (cb) cb(); };
+      tx.onerror = tx.onabort = function () { if (cb) cb(); };
     });
+  }
+
+  function sellarFotos(id, cb) {
+    recorrerFotos("readwrite", function (st, r) {
+      (r.result || []).forEach(function (f) {
+        if (f.recorrido != null || f.id == null) return;
+        f.recorrido = id;
+        st.put(f);
+      });
+    }, cb);
+  }
+
+  function borrarFotosDelRecorrido(id, cb) {
+    recorrerFotos("readwrite", function (st, r) {
+      (r.result || []).forEach(function (f) {
+        if (f.id != null && fotoEsDe(f, id)) st["delete"](f.id);
+      });
+    }, cb);
   }
 
   /* ======================== MAPA (Leaflet) ======================== */
@@ -151,6 +419,9 @@
   var INTENTOS_HUECO = 3;
   var OSRM_TIMEOUT_MS = 8000;
   var OSRM_ESPERA_MS = 1100;    /* el servidor público pide no pasar de 1 req/s */
+  var RUTA_MIN_M = 20;          /* un punto cada 20 m alcanza para dibujar */
+  var RUTA_MAX_HUECOS = 200;
+  var RUTA_MAX_PUNTOS = 3000;
 
   var mapaObj = null;
   var capaDinamica = null;
@@ -169,10 +440,11 @@
     return a.lat.toFixed(5) + "," + a.lon.toFixed(5) + ">" + b.lat.toFixed(5) + "," + b.lon.toFixed(5);
   }
 
-  function buscarHuecoResuelto(a, b) {
+  function buscarHuecoResuelto(a, b, t) {
+    t = t || estado;
     var clave = claveHueco(a, b);
-    for (var i = 0; i < estado.huecosResueltos.length; i++) {
-      if (estado.huecosResueltos[i].k === clave) return estado.huecosResueltos[i].pts;
+    for (var i = 0; i < t.huecosResueltos.length; i++) {
+      if (t.huecosResueltos[i].k === clave) return t.huecosResueltos[i].pts;
     }
     return null;
   }
@@ -203,10 +475,8 @@
     try { pedido = pedirRutaOsrm(item.a, item.b); }
     catch (e) { pedido = Promise.reject(e); }
     pedido.then(function (pts) {
-      estado.huecosResueltos.push({ k: item.clave, pts: pts });
-      if (estado.huecosResueltos.length > 300) {
-        estado.huecosResueltos.splice(0, estado.huecosResueltos.length - 300);
-      }
+      estado.huecosResueltos.push({ k: item.clave, pts: simplificarRuta(pts) });
+      acapararRutas();
       guardar();
       /* El mapa en vivo se redibuja cada tanto y toma la ruta sola; el final
          está quieto, así que hay que avisarle. */
@@ -217,6 +487,31 @@
         osrmOcupado = false;
         setTimeout(procesarColaOsrm, OSRM_ESPERA_MS);
       });
+  }
+
+  /* OSRM devuelve cientos de puntos por tramo. Guardados tal cual llenan el
+     localStorage en un rato, y cuando se llena deja de guardarse TODO el
+     progreso (km, track, respuestas). Se guardan ya adelgazados y con un tope
+     de puntos, así el guardado nunca es lo que se rompe. */
+  function simplificarRuta(pts) {
+    if (!pts || pts.length < 3) return (pts || []).slice(0, 2);
+    var out = [pts[0]];
+    for (var i = 1; i < pts.length - 1; i++) {
+      if (haversine(out[out.length - 1], pts[i]) >= RUTA_MIN_M) out.push(pts[i]);
+    }
+    out.push(pts[pts.length - 1]);
+    return out;
+  }
+
+  function acapararRutas() {
+    var total = 0;
+    for (var i = 0; i < estado.huecosResueltos.length; i++) {
+      total += estado.huecosResueltos[i].pts.length;
+    }
+    while (estado.huecosResueltos.length > 1 &&
+      (estado.huecosResueltos.length > RUTA_MAX_HUECOS || total > RUTA_MAX_PUNTOS)) {
+      total -= estado.huecosResueltos.shift().pts.length;
+    }
   }
 
   function pedirRutaOsrm(a, b) {
@@ -231,7 +526,15 @@
       var url = CFG.osrm[i++] + "/" + extremos + "?overview=full&geometries=geojson";
       var ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
       var t = setTimeout(function () { if (ctrl) ctrl.abort(); }, OSRM_TIMEOUT_MS);
-      return fetch(url, ctrl ? { signal: ctrl.signal } : undefined)
+      /* Si el navegador no tiene AbortController el pedido se queda esperando
+         para siempre y con él toda la cola de huecos: el reloj corta igual. */
+      var reloj = new Promise(function (res, rej) {
+        setTimeout(function () { rej(new Error("tiempo agotado")); }, OSRM_TIMEOUT_MS);
+      });
+      return Promise.race([
+        fetch(url, ctrl ? { signal: ctrl.signal } : undefined),
+        reloj
+      ])
         .then(function (r) {
           if (!r.ok) throw new Error("HTTP " + r.status);
           return r.json();
@@ -243,8 +546,7 @@
           return j.routes[0].geometry.coordinates.map(function (c) {
             return [+c[1].toFixed(5), +c[0].toFixed(5)];
           });
-        })
-        ["catch"](function (e) {
+        })["catch"](function (e) {
           clearTimeout(t);
           return intentar();
         });
@@ -254,22 +556,24 @@
   }
 
   /* Dibuja el recorrido en cualquier capa: lo medido en sólido, los huecos como
-     ruta real si se pudo calcular y punteados mientras tanto. */
-  function pintarRecorrido(capa, color) {
-    tramosTrack().forEach(function (tramo) {
+     ruta real si se pudo calcular y punteados mientras tanto. Un recorrido ya
+     terminado se dibuja tal cual: no se le piden rutas nuevas a OSRM. */
+  function pintarRecorrido(capa, color, t, resolver) {
+    t = t || estado;
+    tramosTrack(t).forEach(function (tramo) {
       if (tramo.length < 2) return;
       window.L.polyline(tramo.map(function (p) { return [p.lat, p.lon]; }),
         { color: color, weight: 5, opacity: 0.9 }).addTo(capa);
     });
 
-    huecos().forEach(function (h) {
+    huecos(t).forEach(function (h) {
       var a = h[0], b = h[1];
-      var resuelta = buscarHuecoResuelto(a, b);
+      var resuelta = buscarHuecoResuelto(a, b, t);
       if (resuelta && resuelta.length > 1) {
         window.L.polyline(resuelta, { color: color, weight: 5, opacity: 0.9 }).addTo(capa);
         return;
       }
-      if (haversine(a, b) >= HUECO_MIN_M) encolarHueco(a, b);
+      if (resolver !== false && haversine(a, b) >= HUECO_MIN_M) encolarHueco(a, b);
       window.L.polyline([[a.lat, a.lon], [b.lat, b.lon]],
         { color: color, weight: 3, opacity: 0.5, dashArray: "6 8" }).addTo(capa);
     });
@@ -293,7 +597,7 @@
     if (capaDinamica) mapaObj.removeLayer(capaDinamica);
     capaDinamica = window.L.layerGroup();
 
-    pintarRecorrido(capaDinamica, "#a9c3a0");
+    pintarRecorrido(capaDinamica, "#a9c3a0", estado, true);
 
     window.L.circleMarker([estado.pos.lat, estado.pos.lon],
       { radius: 9, color: "#ffffff", fillColor: "#d65296", fillOpacity: 1, weight: 3 }).addTo(capaDinamica);
@@ -345,7 +649,14 @@
         ocultarErrorGps();
         var p = { lat: pos.coords.latitude, lon: pos.coords.longitude };
         if (!estado.pos) {
-          estado.pos = p; ultimaFijacion = Date.now(); guardar(); dibujarMapa(); return;
+          /* El punto de arranque también es parte del recorrido: si no entra al
+             track, el primer tramo nunca llega a dibujarse. */
+          estado.pos = p;
+          estado.track.push(p);
+          ultimaFijacion = Date.now();
+          guardar();
+          dibujarMapa();
+          return;
         }
         var ahora = Date.now();
         /* Toda muestra cuenta para el reloj aunque después se descarte por poco
@@ -400,67 +711,63 @@
   var modalAbierto = false;
   var contextoFoto = null;
   var eventoActual = null;
-  var eventoConFoto = false;
+  var avisoTimer = null;
 
-  function yaPendiente(tipo, idx) {
-    return estado.pendientes.some(function (p) { return p.tipo === tipo && p.idx === idx; });
+  function yaPendiente(tipo, k) {
+    return estado.pendientes.some(function (p) { return p.tipo === tipo && p.km === k; });
   }
 
-  function encolar(tipo, idx) {
-    if (yaPendiente(tipo, idx)) return false;
-    estado.pendientes.push({ tipo: tipo, idx: idx });
+  function encolar(tipo, k) {
+    if (yaPendiente(tipo, k)) return false;
+    /* Se anota dónde estaba al cruzarla: la foto de la parada se dibuja ahí y
+       no en donde esté el auto cuando se saca. */
+    estado.pendientes.push({
+      tipo: tipo, km: k,
+      lat: estado.pos ? estado.pos.lat : null,
+      lon: estado.pos ? estado.pos.lon : null
+    });
     return true;
+  }
+
+  function agregarUna(lista, v) { if (lista.indexOf(v) === -1) lista.push(v); }
+
+  function eventoDe(tipo, k) {
+    var lista = tipo === "pista" ? CFG.hitos : CFG.destinos;
+    for (var i = 0; i < lista.length; i++) if (lista[i].km === k) return lista[i];
+    return null;
+  }
+
+  function visto(tipo, k) {
+    return (tipo === "pista" ? estado.vistas : estado.destinosVistos).indexOf(k) !== -1;
   }
 
   function marcarVisto(ev) {
     if (!ev) return;
-    if (ev.tipo === "pista") {
-      if (estado.vistas.indexOf(ev.idx) === -1) estado.vistas.push(ev.idx);
-    } else if (estado.destinosVistos.indexOf(ev.idx) === -1) {
-      estado.destinosVistos.push(ev.idx);
-    }
+    agregarUna(ev.tipo === "pista" ? estado.vistas : estado.destinosVistos, ev.km);
+  }
+
+  function todoVisto() {
+    return CFG.hitos.every(function (h) { return estado.vistas.indexOf(h.km) !== -1; }) &&
+      CFG.destinos.every(function (d) { return estado.destinosVistos.indexOf(d.km) !== -1; });
   }
 
   function revisarEventos() {
     var algo = false;
 
-    CFG.hitos.forEach(function (h, i) {
-      if (estado.vistas.indexOf(i) === -1 && estado.km >= h.km * 1000) {
-        if (encolar("pista", i)) algo = true;
+    CFG.hitos.forEach(function (h) {
+      if (!visto("pista", h.km) && estado.km >= h.km * 1000) {
+        if (encolar("pista", h.km)) algo = true;
       }
     });
 
-    CFG.destinos.forEach(function (d, i) {
-      if (estado.destinosVistos.indexOf(i) === -1 && estado.km >= d.km * 1000) {
-        if (encolar("destino", i)) algo = true;
+    CFG.destinos.forEach(function (d) {
+      if (!visto("destino", d.km) && estado.km >= d.km * 1000) {
+        if (encolar("destino", d.km)) algo = true;
       }
     });
 
     if (algo) { guardar(); siguienteEvento(); }
-    intentarFinal();
-  }
-
-  function intentarFinal() {
-    if (estado.finalizado) return false;
-    /* Con la app en segundo plano no se finaliza nada: se retoma al volver. */
-    if (document.hidden) return false;
-    /* Con un evento abierto todavía no: se finaliza al cerrarlo, para que las
-       varias fotos de la última parada se puedan subir antes. */
-    if (modalAbierto) return false;
-    var todosVistos = CFG.hitos.every(function (h) {
-      return estado.vistas.indexOf(CFG.hitos.indexOf(h)) !== -1;
-    });
-    var destinosVistos = CFG.destinos.every(function (d) {
-      return estado.destinosVistos.indexOf(CFG.destinos.indexOf(d)) !== -1;
-    });
-    var tieneFotoUltimo = CFG.destinos.length > 0 &&
-      estado.destinoFotos.indexOf(CFG.destinos.length - 1) !== -1;
-    if (todosVistos && destinosVistos && tieneFotoUltimo) {
-      setTimeout(finalizar, 300);
-      return true;
-    }
     actualizarBotonTerminar();
-    return false;
   }
 
   function siguienteEvento() {
@@ -470,86 +777,111 @@
   }
 
   function abrirEvento(ev) {
-    var sello, titulo, mensaje, conFoto = false;
-    if (ev.tipo === "pista") {
-      var h = CFG.hitos[ev.idx];
-      sello = "🎁 PISTA";
-      titulo = h.titulo;
-      mensaje = h.mensaje;
-      conFoto = !!h.foto;
-    } else {
-      var d = CFG.destinos[ev.idx];
-      sello = "🎉 DESTINO";
-      titulo = d.titulo;
-      mensaje = d.mensaje;
-      conFoto = true;
+    if (!ev) return;
+    var def = eventoDe(ev.tipo, ev.km);
+    /* La parada quedó en la cola pero ya no existe en el config (se borró):
+       se saca de la cola en vez de romper la app con un error. */
+    if (!def) {
+      estado.pendientes = estado.pendientes.filter(function (p) {
+        return !(p.tipo === ev.tipo && p.km === ev.km);
+      });
+      siguienteEvento();
+      return;
     }
+    var esPista = ev.tipo === "pista";
+    var conFoto = esPista ? !!def.foto : true;
 
     modalAbierto = true;
     contextoFoto = ev;
     eventoActual = ev;
-    eventoConFoto = conFoto;
-    $("#m-sello").textContent = sello;
-    $("#m-sello").classList.toggle("oculto", ev.tipo === "destino");
-    $("#m-titulo").textContent = titulo || "";
-    $("#m-texto").textContent = mensaje || "";
-    var btnFoto = $("#m-subir-foto");
-    btnFoto.classList.toggle("oculto", !conFoto);
-    /* En el último destino el botón cierra el recorrido, así que avisa. */
-    var ultimo = ev.tipo === "destino" && ev.idx === CFG.destinos.length - 1;
-    $("#m-cerrar").textContent = ultimo
-      ? (CFG.textoListo || CFG.textoSeguir || "Listo")
-      : (CFG.textoSeguir || "Seguir");
+    $("#m-sello").textContent = esPista ? "🎁 PISTA" : "🎉 DESTINO";
+    $("#m-sello").classList.toggle("oculto", !esPista);
+    $("#m-titulo").textContent = def.titulo || "";
+    $("#m-texto").textContent = def.mensaje || "";
+    $("#m-subir-foto").classList.toggle("oculto", !conFoto);
     var inp = $("#m-input");
-    var conInput = ev.tipo === "pista" && !!CFG.hitos[ev.idx].input;
+    var conInput = esPista && !!def.input;
     inp.classList.toggle("oculto", !conInput);
     if (conInput) {
-      inp.value = estado.respuestas[ev.idx] || "";
-      inp.placeholder = CFG.hitos[ev.idx].placeholder || "";
+      inp.value = estado.respuestas[ev.km] || "";
+      inp.placeholder = def.placeholder || "";
     }
     $("#modal-evento").classList.add("abierto");
-    contarFotosDeEvento(ev, function (n) { pintarFotosModal(n); });
+    limpiarAviso();
   }
 
-  /* ======================== FOTOS ======================== */
-  /* Cada foto guarda a qué evento pertenece (tipo + idx). Eso permite varias
-     fotos por evento y agruparlas después para dibujar un solo marcador con
-     contador. Las fotos viejas no lo tienen y quedan en su propio grupo. */
-  function contarFotosDeEvento(ev, cb) {
-    if (!ev) { cb(0); return; }
-    todasFotos(function (fotos) {
-      var n = fotos.filter(function (f) { return f.tipo === ev.tipo && f.idx === ev.idx; }).length;
-      cb(n);
+  /* ======================== FOTOS ========================
+     Cada foto guarda a qué recorrido y a qué parada pertenece. Eso permite
+     varias fotos por parada, agruparlas después para dibujar un solo marcador
+     con contador, y que un recorrido terminado conserve los suyos cuando se
+     empiece uno nuevo. Las fotos de las versiones viejas guardaban el número de
+     posición que tenía la parada en la lista de ese momento: con las firmas de
+     cada versión se recupera su km, y las que no se pueden recuperar quedan como
+     fotos sueltas. */
+  function fotoEsDe(f, id) {
+    /* Las que no tienen recorrido son del que esté en curso: las más viejas
+       todavía no existían los recorridos guardados. */
+    if (f.recorrido == null) return id === estado.id;
+    return f.recorrido === id;
+  }
+
+  function fotosDeRecorrido(id, cb) {
+    todasFotos(function (todas) {
+      cb(todas.filter(function (f) { return fotoEsDe(f, id); }));
     });
   }
 
-  function pintarFotosModal(n) {
-    var cont = $("#m-fotos");
-    if (!eventoConFoto || !n) {
-      cont.classList.add("oculto");
-    } else {
-      cont.textContent = (CFG.textoFotosGuardadas || "{n} recuerdo(s) 📷").replace("{n}", n);
-      cont.classList.remove("oculto");
+  function kmDeFoto(f) {
+    if (f.kmEv != null) return f.kmEv;
+    if (f.idx == null) return null;
+    var esPista = f.tipo === "pista";
+    var cfg = esPista ? CFG.hitos : CFG.destinos;
+    /* El mismo índice puede significar dos paradas distintas según la versión
+       que guardó la foto: se elige la que este recorrido ya registró, y si no
+       registró ninguna, la de la versión más vieja. */
+    var marcadas = esPista ? estado.vistas.concat(estado.hitoFotos) : estado.destinosVistos.concat(estado.destinoFotos);
+    var candidatas = [FIRMA_VIEJA[esPista ? "hitos" : "destinos"], FIRMA_KM[esPista ? "hitos" : "destinos"]];
+    for (var c = 0; c < candidatas.length; c++) {
+      var k = candidatas[c][f.idx];
+      if (k == null || marcadas.indexOf(k) === -1 || !existeEn(cfg, k)) continue;
+      return k;
     }
-    $("#m-subir-foto").textContent = n
-      ? (CFG.textoAgregarFoto || "Agregar otra 📸")
-      : (CFG.textoSubirFoto || "Subir recuerdo 📸");
+    for (var c2 = 0; c2 < candidatas.length; c2++) {
+      var k2 = candidatas[c2][f.idx];
+      if (k2 != null && existeEn(cfg, k2)) return k2;
+    }
+    return null;
+  }
+
+  /* Aviso del modal: no cuenta fotos, solo avisa si una se guardó o si no se
+     pudo leer. Los errores se quedan hasta el próximo intento. */
+  function avisarFoto(texto, temporal) {
+    var cont = $("#m-aviso");
+    if (!cont) return;
+    if (avisoTimer) { clearTimeout(avisoTimer); avisoTimer = null; }
+    cont.textContent = texto || "";
+    cont.classList.toggle("oculto", !texto);
+    if (texto && temporal) {
+      avisoTimer = setTimeout(limpiarAviso, 2500);
+    }
+  }
+
+  function limpiarAviso() {
+    if (avisoTimer) { clearTimeout(avisoTimer); avisoTimer = null; }
+    avisarFoto("");
   }
 
   function cerrarEvento() {
     var ev = eventoActual;
     if (ev && ev.tipo === "pista" && !$("#m-input").classList.contains("oculto")) {
       var v = $("#m-input").value.trim();
-      if (v && estado.respuestas[ev.idx] !== v) {
-        estado.respuestas[ev.idx] = v;
-        guardar();
-      }
+      if (v) estado.respuestas[ev.km] = v;
     }
     /* El evento recién se da por visto cuando se cierra: si la app se suspende
        con el modal abierto, sigue en la cola y reaparece al volver. */
     for (var i = estado.pendientes.length - 1; i >= 0; i--) {
       var p = estado.pendientes[i];
-      if (ev && p.tipo === ev.tipo && p.idx === ev.idx) {
+      if (ev && p.tipo === ev.tipo && p.km === ev.km) {
         estado.pendientes.splice(i, 1);
       }
     }
@@ -560,33 +892,21 @@
     $("#modal-evento").classList.remove("abierto");
     guardar();
 
-    /* El último destino cierra el recorrido, y se cierra recién cuando el
-       usuario aprieta "Listo": sacar la primera foto ya no lo termina, porque
-       ahora se pueden subir varias. Sin foto no se cierra solo, para no perder
-       el recuerdo; queda el botón de terminar recorrido por si la cámara falla. */
-    var cierraViaje = ev && ev.tipo === "destino" && ev.idx === CFG.destinos.length - 1 &&
-      estado.destinoFotos.indexOf(ev.idx) !== -1;
-
-    /* Con la app en segundo plano no se finaliza nada: se retoma al volver. */
-    if (document.hidden) { siguienteEvento(); return; }
-    if (cierraViaje) { setTimeout(finalizar, 300); return; }
-
+    /* Cerrar la parada no termina nada: el recorrido lo termina ella cuando quiera
+       apretando el botón. Así puede subir todos los recuerdos que quiera en la
+       última parada sin que ninguna foto se cierre el viaje. */
+    if (document.hidden) return;
     siguienteEvento();
-    if (!intentarFinal()) actualizarBotonTerminar();
+    actualizarBotonTerminar();
   }
 
   function actualizarBotonTerminar() {
-    var todosVistos = CFG.hitos.every(function (h) {
-      return estado.vistas.indexOf(CFG.hitos.indexOf(h)) !== -1;
-    });
-    var destinosVistos = CFG.destinos.every(function (d) {
-      return estado.destinosVistos.indexOf(CFG.destinos.indexOf(d)) !== -1;
-    });
-    $("#btn-terminar").classList.toggle("oculto", !(todosVistos && destinosVistos && !estado.finalizado));
+    $("#btn-terminar").classList.toggle("oculto", !(todoVisto() && !estado.finalizado));
   }
 
   /* ======================== FOTOS ======================== */
   var fotoAbriendo = false;
+  var fotoEvento = null;   /* parada de la foto que se está sacando */
 
   function pedirFoto() {
     /* Un toque doble abriría dos selectores de archivo. Si el usuario
@@ -594,63 +914,84 @@
     if (fotoAbriendo) return;
     fotoAbriendo = true;
     setTimeout(function () { fotoAbriendo = false; }, 1000);
+    /* La parada se anota ya: leer el archivo y achicar la imagen tarda, y para
+       entonces el modal puede haberse cerrado (incluso solo, por un reinicio
+       del sistema). Sin esto la foto queda sin parada, no cuenta para el
+       recorrido y el viaje no se puede terminar. */
+    fotoEvento = contextoFoto;
     var input = $("#input-foto");
     input.value = "";
     input.click();
   }
 
   function procesarArchivo(file) {
-    if (!file) return;
     fotoAbriendo = false;
+    var ev = fotoEvento;
+    fotoEvento = null;
+    if (!file) return;
     var reader = new FileReader();
     reader.onload = function (e) {
       var img = new Image();
       img.onload = function () {
-        var max = 1000;
-        var escala = Math.min(1, max / Math.max(img.width, img.height));
-        var cv = document.createElement("canvas");
-        cv.width = Math.round(img.width * escala);
-        cv.height = Math.round(img.height * escala);
-        cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
-        var dataUrl = cv.toDataURL("image/jpeg", 0.8);
-        guardarFotoRegistrada(dataUrl);
+        var dataUrl = null;
+        try { dataUrl = achicar(img); }
+        catch (err) { console.error("No se pudo procesar la foto:", err); }
+        if (!dataUrl) { avisarFoto("No pude leer esa foto 😞 Probá otra."); return; }
+        guardarFotoRegistrada(ev, dataUrl);
       };
+      img.onerror = function () { avisarFoto("No pude leer esa foto 😞 Probá otra."); };
       img.src = e.target.result;
     };
+    reader.onerror = function () { avisarFoto("No pude leer esa foto 😞 Probá otra."); };
     reader.readAsDataURL(file);
   }
 
-  function guardarFotoRegistrada(dataUrl) {
-    var ev = contextoFoto;
-    var km = estado.km;
-    var pos = estado.pos;
+  /* Se achica antes de guardar: una foto de cámara pesa megabytes y la base
+     del navegador es finita. */
+  function achicar(img) {
+    var max = 1000;
+    var escala = Math.min(1, max / Math.max(img.width, img.height));
+    var cv = document.createElement("canvas");
+    cv.width = Math.max(1, Math.round(img.width * escala));
+    cv.height = Math.max(1, Math.round(img.height * escala));
+    cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+    var dataUrl = cv.toDataURL("image/jpeg", 0.8);
+    return (dataUrl.indexOf("data:image/jpeg") === 0 && dataUrl.length > 200) ? dataUrl : null;
+  }
+
+  function guardarFotoRegistrada(ev, dataUrl) {
+    /* El lugar de la foto es donde estaba el auto al llegar a la parada, no
+       donde esté cuando se saca: si tardaron en sacar el celular, igual queda
+       en el lugar correcto. */
+    var pos = (ev && ev.lat != null && ev.lon != null) ? { lat: ev.lat, lon: ev.lon } : estado.pos;
     if (!pos && estado.track.length) pos = estado.track[estado.track.length - 1];
 
     var foto = {
       fecha: new Date().toISOString(),
-      km: km,
+      recorrido: estado.id,
+      km: ev ? ev.km * 1000 : estado.km,
       lat: pos ? pos.lat : null,
       lon: pos ? pos.lon : null,
       tipo: ev ? ev.tipo : null,
-      idx: ev ? ev.idx : null,
+      kmEv: ev ? ev.km : null,
       dataUrl: dataUrl
     };
 
-    guardarFoto(foto, function () {
-      if (ev && ev.tipo === "pista" && estado.hitoFotos.indexOf(ev.idx) === -1) estado.hitoFotos.push(ev.idx);
-      if (ev && ev.tipo === "destino" && estado.destinoFotos.indexOf(ev.idx) === -1) estado.destinoFotos.push(ev.idx);
+    guardarFoto(foto, function (ok) {
+      if (!ok) {
+        avisarFoto("No pude guardar el recuerdo 😞 Probá otra.");
+        return;
+      }
+      if (ev) agregarUna(ev.tipo === "pista" ? estado.hitoFotos : estado.destinoFotos, ev.km);
       guardar();
-
-      /* El modal sigue abierto: se pueden subir varias fotos del mismo evento.
-         El recorrido ya no se cierra acá, se cierra al apretar "Listo". */
-      contarFotosDeEvento(ev, function (n) { pintarFotosModal(n); });
-      renderRecuerdos();
-      if (!intentarFinal()) actualizarBotonTerminar();
+      avisarFoto("¡Recuerdo guardado! 📸", true);
+      /* El modal sigue abierto: se pueden subir varias fotos de la misma parada. */
+      renderRecuerdos(estado.id);
     });
   }
 
-  function renderRecuerdos() {
-    todasFotos(function (fotos) {
+  function renderRecuerdos(id) {
+    fotosDeRecorrido(id || estado.id, function (fotos) {
       var gal = $("#galeria");
       gal.innerHTML = "";
       fotos.forEach(function (f) {
@@ -663,20 +1004,21 @@
     });
   }
 
-  /* Las fotos se agrupan por evento para que las varias de una misma parada se
-     dibujen en un solo marcador con contador. Las fotos viejas no guardan a qué
-     evento pertenecían, así que cada una queda en su propio grupo. */
+  /* Las fotos se agrupan por parada para que las varias de una misma parada se
+     dibujen en un solo marcador con contador. Las fotos que no se pudieron
+     ubicar en ninguna parada quedan cada una en su propio grupo. */
   function agruparFotos(fotos) {
     var grupos = [], porClave = {}, sueltos = 0;
     fotos.forEach(function (f) {
-      var clave = (f.tipo != null && f.idx != null)
-        ? f.tipo + ":" + f.idx
+      var k = kmDeFoto(f);
+      var clave = (f.tipo && k != null)
+        ? f.tipo + ":" + k
         : "suelta:" + (f.id != null ? f.id : "x" + sueltos++);
       if (!porClave[clave]) {
-        porClave[clave] = { fotos: [] };
+        porClave[clave] = [];
         grupos.push(porClave[clave]);
       }
-      porClave[clave].fotos.push(f);
+      porClave[clave].push(f);
     });
     return grupos;
   }
@@ -686,6 +1028,7 @@
   var grupoFinal = null;
   var renderFinalToken = 0;
   var encajadoFinal = false;
+  var vistaFinal = null;   /* recorrido que se está mostrando en esta pantalla */
 
   function finalizar() {
     if (estado.finalizado) return;
@@ -693,19 +1036,48 @@
     wakePedido = false;
     soltarWake();
     guardar();
+    archivar();
     if (watcher !== null) { navigator.geolocation.clearWatch(watcher); watcher = null; }
+    abrirRecorrido(estado, true);
+  }
+
+  /* La misma pantalla sirve para el recorrido que acaba de terminar y para
+     cualquiera de los guardados: solo cambia de dónde saca el mapa y las fotos. */
+  function abrirRecorrido(t, esActual) {
+    vistaFinal = t;
+    /* Cada recorrido se encuadra por separado: si no, el segundo mostraría el
+       mapa encuadrado sobre el recorrido anterior. */
+    encajadoFinal = false;
+    $("#f-mensaje").textContent = esActual
+      ? (CFG.textoFinal || "")
+      : textoRecorrido(t);
+    $("#btn-reiniciar").classList.toggle("oculto", !esActual);
+    $("#btn-volver").classList.toggle("oculto", !!esActual);
     mostrarPantalla("pantalla-final");
-    renderRecuerdos();
-    dibujarMapaFinal();
+    actualizarBotonesRecorridos();
+    renderRecuerdos(t.id);
+    cargarLeaflet(dibujarMapaFinal);
+  }
+
+  function textoRecorrido(t) {
+    return (CFG.textoRecorrido || "Recorrido del {fecha} · {km} km")
+      .replace("{fecha}", fechaLegible(t.cerrado))
+      .replace("{km}", formatearKm(t.km));
+  }
+
+  function fechaLegible(iso) {
+    if (!iso) return "";
+    try {
+      return new Date(iso).toLocaleDateString("es-AR", { day: "numeric", month: "long", year: "numeric" });
+    } catch (e) { return ""; }
   }
 
   function dibujarMapaFinal() {
     if (!window.L) { cargarLeaflet(dibujarMapaFinal); return; }
+    $("#mapa-final-wrap").classList.remove("oculto");
     if (mapaFinal) { renderFinal(); return; }
-    var wrap = $("#mapa-final-wrap");
-    wrap.classList.remove("oculto");
-
-    mapaFinal = window.L.map("mapa-final").setView([-34.6, -58.4], 10);
+    var pos = (vistaFinal && vistaFinal.pos) || estado.pos || { lat: -34.6, lon: -58.4 };
+    mapaFinal = window.L.map("mapa-final").setView([pos.lat, pos.lon], 10);
     window.L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
       maxZoom: 19, attribution: "&copy; Esri"
     }).addTo(mapaFinal);
@@ -717,24 +1089,27 @@
      real reemplace al tramo punteado. El encuadre se hace una sola vez. */
   function renderFinal() {
     if (!mapaFinal) return;
+    var t = vistaFinal || estado;
     var token = ++renderFinalToken;
     grupoFinal.clearLayers();
 
-    pintarRecorrido(grupoFinal, "#e8a0b4");
+    /* Solo el recorrido en curso puede tener huecos sin resolver: a uno ya
+       terminado no se le piden rutas nuevas. */
+    pintarRecorrido(grupoFinal, "#e8a0b4", t, t === estado);
 
     var bounds = [];
-    estado.track.forEach(function (p) { bounds.push([p.lat, p.lon]); });
-    if (estado.pos) bounds.push([estado.pos.lat, estado.pos.lon]);
+    t.track.forEach(function (p) { bounds.push([p.lat, p.lon]); });
+    if (t.pos) bounds.push([t.pos.lat, t.pos.lon]);
 
-    todasFotos(function (fotos) {
+    fotosDeRecorrido(t.id, function (fotos) {
       if (token !== renderFinalToken) return;
       agruparFotos(fotos).forEach(function (g) {
         /* Varias fotos pueden caer en el mismo instante si el GPS titila: se
            dibuja la primera que sí tenga posición. */
-        var conPos = g.fotos.filter(function (f) { return f.lat !== null && f.lon !== null; });
+        var conPos = g.filter(function (f) { return f.lat !== null && f.lon !== null; });
         if (!conPos.length) return;
         var html = '<img src="' + conPos[0].dataUrl + '">' +
-          (g.fotos.length > 1 ? '<span class="foto-n">' + g.fotos.length + "</span>" : "");
+          (g.length > 1 ? '<span class="foto-n">' + g.length + "</span>" : "");
         var ic = window.L.divIcon({
           className: "foto-ic",
           html: html,
@@ -747,12 +1122,75 @@
       });
 
       if (!encajadoFinal && bounds.length) {
+        /* El mapa puede seguir sin tamaño cuando se muestra la pantalla final.
+           Encajar antes de que mida bien encuadra cualquier cosa, y como el
+           encuadre se hace una sola vez, después ya no se corrige. */
+        mapaFinal.invalidateSize();
         mapaFinal.fitBounds(bounds, { padding: [40, 40] });
         encajadoFinal = true;
       }
     });
 
     setTimeout(function () { if (mapaFinal) mapaFinal.invalidateSize(); }, 150);
+  }
+
+  /* ======================== HISTORIAL ======================== */
+  function abrirHistorial() {
+    mostrarPantalla("pantalla-historial");
+    renderHistorial();
+  }
+
+  function volver() {
+    if (estado.finalizado) { mostrarPantalla("pantalla-final"); return; }
+    if (estado.iniciado) { mostrarPantalla("pantalla-viaje"); return; }
+    mostrarPantalla("pantalla-portada");
+  }
+
+  function renderHistorial() {
+    var lista = leerHistorial();
+    var cont = $("#h-lista");
+    cont.innerHTML = "";
+    $("#h-vacio").classList.toggle("oculto", lista.length > 0);
+    if (!lista.length) return;
+    todasFotos(function (todas) {
+      /* Una miniatura por recorrido: la primera foto que se le encontró. */
+      var mini = {};
+      todas.forEach(function (f) {
+        if (f.recorrido != null && !mini[f.recorrido]) mini[f.recorrido] = f;
+      });
+      lista.forEach(function (t) { cont.appendChild(tarjetaRecorrido(t, mini[t.id])); });
+    });
+  }
+
+  function tarjetaRecorrido(t, foto) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "h-card";
+    /* Un recorrido sin fotos no muestra un marco vacío con la imagen rota. */
+    var miniatura;
+    if (foto) {
+      miniatura = document.createElement("img");
+      miniatura.className = "h-mini";
+      miniatura.alt = "";
+      miniatura.src = foto.dataUrl;
+    } else {
+      miniatura = document.createElement("div");
+      miniatura.className = "h-mini vacio";
+    }
+    var datos = document.createElement("span");
+    datos.className = "h-datos";
+    var f1 = document.createElement("span");
+    f1.className = "h-fecha";
+    f1.textContent = fechaLegible(t.cerrado);
+    var f2 = document.createElement("span");
+    f2.className = "h-km";
+    f2.textContent = formatearKm(t.km) + " km";
+    datos.appendChild(f1);
+    datos.appendChild(f2);
+    b.appendChild(miniatura);
+    b.appendChild(datos);
+    b.addEventListener("click", function () { abrirRecorrido(t, false); });
+    return b;
   }
 
   /* ======================== LIGHTBOX ======================== */
@@ -841,36 +1279,74 @@
     guardar();
     mostrarPantalla("pantalla-viaje");
     renderKm();
+    actualizarBotonesRecorridos();
     cargarLeaflet();
     iniciarGps();
-    renderRecuerdos();
+    renderRecuerdos(estado.id);
+    /* Si ya había kilómetros recorridos (la app quedó abierta y vuelve a
+       empezar), las paradas que se pasaron sin abrirse saltan ahora. */
+    siguienteEvento();
+  }
+
+  var confirmarCb = null;
+
+  function pedirConfirmacion(texto, cb) {
+    confirmarCb = cb;
+    $("#c-texto").textContent = texto || "";
+    $("#modal-confirm").classList.add("abierto");
+  }
+
+  function responderConfirmacion(ok) {
+    var cb = confirmarCb;
+    confirmarCb = null;
+    $("#modal-confirm").classList.remove("abierto");
+    if (cb) cb(ok);
   }
 
   function reiniciar() {
-    if (watcher !== null) { navigator.geolocation.clearWatch(watcher); watcher = null; }
-    estado = estadoInicial();
-    guardar();
-    try { localStorage.removeItem(LS_CLAVE); } catch (e) {}
-    var recargado = false;
-    function recargar() {
-      if (recargado) return;
-      recargado = true;
-      location.reload();
-    }
-    limpiarFotos(recargar);
-    setTimeout(recargar, 500);
+    pedirConfirmacion(CFG.textoConfirmReiniciar, function (ok) {
+      if (!ok) return;
+      var idViejo = estado.id;
+      /* Un recorrido ya terminado quedó guardado con sus fotos al apretar
+         "Terminar recorrido": se conserva todo. Si no llegó a guardarse (por
+         ejemplo, si no había lugar), sus recuerdos se van con él, porque no
+         pueden quedar colgados de un recorrido que ya no existe. */
+      var conservar = estado.finalizado && enHistorial(idViejo);
+      estado = estadoInicial();
+      guardar();
+      try { localStorage.removeItem(LS_CLAVE_VIEJA); } catch (e) {}
+      if (mapaFinal) { try { mapaFinal.remove(); } catch (e) {} }
+      mapaFinal = null;
+      grupoFinal = null;
+      vistaFinal = null;
+      var recargado = false;
+      function recargar() {
+        if (recargado) return;
+        recargado = true;
+        location.reload();
+      }
+      if (conservar) { recargar(); return; }
+      borrarFotosDelRecorrido(idViejo, recargar);
+      setTimeout(recargar, 800);
+    });
   }
 
   /* Atajo de prueba: tocar 5 veces la intro abre el próximo evento */
   function probarEvento() {
     if (modalAbierto) return;
-    var pendientePista = CFG.hitos.findIndex(function (h, i) { return estado.vistas.indexOf(i) === -1; });
-    var pendienteDest = CFG.destinos.findIndex(function (d, i) { return estado.destinosVistos.indexOf(i) === -1; });
-
-    var ev = (pendientePista !== -1)
-      ? { tipo: "pista", idx: pendientePista }
-      : (pendienteDest !== -1 ? { tipo: "destino", idx: pendienteDest } : null);
-
+    var ev = null;
+    CFG.hitos.some(function (h) {
+      if (ev || estado.vistas.indexOf(h.km) !== -1) return false;
+      ev = { tipo: "pista", km: h.km };
+      return true;
+    });
+    if (!ev) {
+      CFG.destinos.some(function (d) {
+        if (ev || estado.destinosVistos.indexOf(d.km) !== -1) return false;
+        ev = { tipo: "destino", km: d.km };
+        return true;
+      });
+    }
     if (ev) {
       abrirEvento(ev);
       actualizarBotonTerminar();
@@ -889,6 +1365,14 @@
   function bindear() {
     $("#btn-empezar").addEventListener("click", empezar);
 
+    $$(".js-recorridos").forEach(function (b) {
+      b.addEventListener("click", abrirHistorial);
+    });
+    $("#h-volver").addEventListener("click", volver);
+    $("#btn-volver").addEventListener("click", abrirHistorial);
+    $("#c-si").addEventListener("click", function () { responderConfirmacion(true); });
+    $("#c-no").addEventListener("click", function () { responderConfirmacion(false); });
+
     $("#btn-reintentar").addEventListener("click", function () {
       if (watcher !== null) { navigator.geolocation.clearWatch(watcher); watcher = null; }
       ocultarErrorGps();
@@ -897,6 +1381,10 @@
 
     $("#m-subir-foto").addEventListener("click", pedirFoto);
     $("#m-cerrar").addEventListener("click", cerrarEvento);
+    /* En el celular el teclado tapa el botón de abajo: con Enter se cierra. */
+    $("#m-input").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); cerrarEvento(); }
+    });
     $("#input-foto").addEventListener("change", function () {
       procesarArchivo(this.files && this.files[0]);
     });
@@ -950,7 +1438,7 @@
     if (estado.finalizado || !estado.iniciado) return;
     if (estado.pos) dibujarMapa();
     siguienteEvento();
-    intentarFinal();
+    actualizarBotonTerminar();
   });
   window.addEventListener("pagehide", guardar);
 
@@ -959,10 +1447,9 @@
     aplicarTextos();
     bindear();
     pintarWake();
+    actualizarBotonesRecorridos();
     if (estado.finalizado) {
-      mostrarPantalla("pantalla-final");
-      renderRecuerdos();
-      cargarLeaflet(dibujarMapaFinal);
+      abrirRecorrido(estado, true);
       return;
     }
     if (estado.iniciado && estado.pos) {
@@ -970,8 +1457,10 @@
       renderKm();
       cargarLeaflet();
       iniciarGps();
-      renderRecuerdos();
-      /* Eventos que quedaron a medio ver antes de que la app se suspendiera. */
+      renderRecuerdos(estado.id);
+      /* Eventos que quedaron a medio ver antes de que la app se suspendiera,
+         y paradas nuevas que se pasaron sin abrirse. */
+      revisarEventos();
       siguienteEvento();
     }
   }

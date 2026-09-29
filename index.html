@@ -28,7 +28,10 @@
       <h1 class="titulo"></h1>
       <div class="corazon" aria-hidden="true"></div>
       <p class="frase"></p>
-      <button class="boton" type="button" id="btn-empezar"></button>
+      <div class="botones-portada">
+        <button class="boton" type="button" id="btn-empezar"></button>
+        <button id="btn-historial" class="boton-chico js-recorridos oculto" type="button"></button>
+      </div>
     </div>
   </main>
 
@@ -44,6 +47,7 @@
     <div id="modo-prueba" class="modo-prueba oculto">MODO PRUEBA · km sumados de prueba</div>
 
     <button id="btn-wake" class="boton-chico wake-btn oculto" type="button"></button>
+    <button id="btn-recorridos-viaje" class="boton-chico js-recorridos oculto" type="button"></button>
 
     <div class="aviso-gps oculto" id="aviso-gps">
       <p id="t-aviso-gps"></p>
@@ -65,17 +69,35 @@
     <div class="modal-carta">
       <span class="modal-sello" id="m-sello">🎁 PISTA</span>
       <h2 id="m-titulo"></h2>
-<p id="m-texto"></p>
-<div id="m-fotos" class="modal-fotos oculto"></div>
-<input type="text" id="m-input" class="modal-input oculto" autocomplete="off" autocapitalize="sentences">
+      <p id="m-texto"></p>
+      <div id="m-aviso" class="modal-aviso oculto"></div>
+      <input type="text" id="m-input" class="modal-input oculto" autocomplete="off" autocapitalize="sentences">
       <button id="m-subir-foto" class="boton oculto"></button>
       <button id="m-cerrar" class="boton-chico"></button>
     </div>
   </div>
 
+  <!-- ============ CONFIRMAR ============ -->
+  <div id="modal-confirm" class="modal">
+    <div class="modal-carta">
+      <h2 id="c-titulo"></h2>
+      <p id="c-texto"></p>
+      <button id="c-si" class="boton"></button>
+      <button id="c-no" class="boton-chico"></button>
+    </div>
+  </div>
+
   <input type="file" id="input-foto" accept="image/*" capture="environment" hidden>
 
-  <!-- ============ FINAL ============ -->
+  <!-- ============ HISTORIAL ============ -->
+  <section id="pantalla-historial" class="pantalla historial oculto">
+    <div class="encabezado"><span id="h-titulo"></span></div>
+    <p id="h-vacio" class="frase oculto"></p>
+    <div id="h-lista" class="h-lista"></div>
+    <button id="h-volver" class="boton-chico"></button>
+  </section>
+
+  <!-- ============ FINAL / RECORRIDO GUARDADO ============ -->
   <section id="pantalla-final" class="pantalla final oculto">
     <div class="encabezado"><span class="titulo-final"></span></div>
     <p id="f-mensaje" class="frase"></p>
@@ -83,7 +105,11 @@
       <div id="mapa-final"></div>
     </div>
     <div id="galeria" class="galeria"></div>
-    <button id="btn-reiniciar" class="boton"></button>
+    <div class="final-botones">
+      <button id="btn-reiniciar" class="boton"></button>
+      <button id="btn-volver" class="boton oculto"></button>
+      <button id="btn-final-otros" class="boton-chico js-recorridos oculto"></button>
+    </div>
   </section>
 
   <!-- ============ LIGHTBOX ============ -->

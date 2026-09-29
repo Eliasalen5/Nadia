@@ -10,13 +10,19 @@ const CONFIG = {
   textoReintentar: "Reintentar",
 
   textoSubirFoto: "Subir recuerdo 📸",
-  textoAgregarFoto: "Agregar otra 📸",
-  textoFotosGuardadas: "Ya guardaste {n} recuerdo(s) 📷",
   textoSeguir: "Seguir",
-  textoListo: "Listo 🏁",
   textoTerminar: "Terminar recorrido 🏁",
   textoReiniciar: "Empezar de nuevo 🔄",
   textoFinal: "Así quedó nuestro recorrido 💞",
+  textoConfirmar: "¿Empezar de nuevo?",
+  textoConfirmReiniciar: "Se borra el recorrido que está en curso y sus recuerdos. Los recorridos ya terminados se conservan.",
+  textoSi: "Sí, dale",
+  textoNo: "Ahora no",
+  textoRecorridos: "Recorridos guardados ({n})",
+  textoRecorrido: "Recorrido del {fecha} · {km} km",
+  textoHistorial: "Recorridos guardados",
+  textoSinRecorridos: "Todavía no hay recorridos terminados.",
+  textoVolver: "Volver",
 
   textoWakeOn: "Pantalla encendida 🔆",
   textoWakeOff: "Mantener pantalla encendida 💤",
@@ -40,7 +46,7 @@ const CONFIG = {
     { km: 125, titulo: "¡Llegamos!", mensaje: "Tu regalo es elegirte cualquier cosa del shopping pero solo una, ¡pensalo bien!! 🛍️", foto: true },
     { km: 187, titulo: "El mejor destino", mensaje: "Llegamos 💫 Acá termina el viaje y empieza lo mejor: el lugar donde te relajás al 100%, tal como te prometí a los 20 km. Vos acomodate y la fogata la prendemos nosotros. 🔥", foto: true }
     /* TODO: falta la parada que sigue después del glamping. Decime km, si es pista
-       o destino, título y mensaje, y la agregás acá. Al ser la última, el botón
-       del modal pasa a decir "Listo 🏁" y ahí se cierra el recorrido. */
+       o destino, título y mensaje, y la agregás acá. El recorrido no se termina solo:
+       cuando ya vio todas las paradas le aparece el botón para terminarlo. */
   ]
 };

@@ -138,6 +138,14 @@ body {
   cursor: pointer;
 }
 
+.botones-portada {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
 /* ==================== VIAJE ==================== */
 .viaje {
   flex-direction: column;
@@ -183,6 +191,10 @@ body {
 }
 
 .wake-btn {
+  align-self: center;
+}
+
+.viaje > .boton-chico {
   align-self: center;
 }
 
@@ -271,6 +283,10 @@ body {
   border-radius: 24px;
   padding: 30px 26px;
   max-width: 420px;
+  /* En un teléfono chico, con el teclado abierto, una parada con texto largo
+     tapaba los botones sin forma de llegar: la carta scrollea. */
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
   width: 100%;
   text-align: center;
   display: flex;
@@ -318,8 +334,8 @@ body {
   box-shadow: 0 0 0 3px rgba(232, 160, 180, 0.2);
 }
 
-/* Aviso de cuántas fotos ya se guardaron en este evento */
-.modal-fotos {
+/* Aviso del modal: si un recuerdo se guardó o si no se pudo leer */
+.modal-aviso {
   font-size: 13px;
   color: var(--tinta-suave);
   margin-bottom: 2px;
@@ -345,6 +361,77 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
   gap: 10px;
+}
+
+.final-botones {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ==================== HISTORIAL ==================== */
+.historial {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  justify-content: flex-start;
+  padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+}
+
+.h-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.h-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  font-family: Georgia, "Times New Roman", serif;
+  text-align: left;
+  background: var(--blanco);
+  border: 1.5px solid var(--verde);
+  border-radius: 18px;
+  padding: 12px 14px;
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(169, 195, 160, 0.25);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.h-card:hover { box-shadow: 0 10px 22px rgba(169, 195, 160, 0.4); }
+.h-card:active { transform: scale(0.98); }
+
+.h-mini {
+  width: 62px;
+  height: 62px;
+  flex: 0 0 62px;
+  border-radius: 14px;
+  object-fit: cover;
+  border: 2px solid var(--verde);
+}
+
+/* Un recorrido sin fotos: un marco vacío, no una imagen rota */
+.h-mini.vacio {
+  background: var(--fondo);
+}
+
+.h-datos {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.h-fecha {
+  font-size: 16px;
+  color: var(--tinta);
+}
+
+.h-km {
+  font-size: 14px;
+  color: var(--tinta-suave);
 }
 
 .galeria img {
@@ -436,7 +523,7 @@ body {
     width: 100%;
   }
 
-  .viaje, .final {
+  .viaje, .final, .historial {
     padding: 14px 10px calc(14px + env(safe-area-inset-bottom));
     gap: 12px;
   }
