@@ -1353,9 +1353,9 @@
     }
   }
 
-  /* Atajo de prueba: tocar 5 veces el contador de km suma +30 km */
+  /* Atajo de prueba: tocar 5 veces el contador de km suma +10 km */
   function sumarKmPrueba() {
-    estado.km += 30000;
+    estado.km += 10000;
     guardar();
     renderKm();
     revisarEventos();
