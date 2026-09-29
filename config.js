@@ -15,6 +15,17 @@ const CONFIG = {
   textoReiniciar: "Empezar de nuevo 🔄",
   textoFinal: "Así quedó nuestro recorrido 💞",
 
+  textoWakeOn: "Pantalla encendida 🔆",
+  textoWakeOff: "Mantener pantalla encendida 💤",
+
+  /* Servicios públicos de OSRM para calcular los tramos que el GPS no registró.
+     Se prueban en orden y el primero que responde gana. El segundo solo entra si
+     el primero falla, porque el servicio público pide no pasar de 1 pedido/seg. */
+  osrm: [
+    "https://router.project-osrm.org/route/v1/driving",
+    "https://routing.openstreetmap.de/routed-car/route/v1/driving"
+  ],
+
   hitos: [
     { km: 30, titulo: "¿Dónde crees que vamos?", mensaje: "Es un lugar que te gusta ir mucho. ¡Paciencia, tomemos unos mates! 🧉", foto: true, input: true, placeholder: "Escribí tu respuesta…" },
     { km: 100, titulo: "Estamos cerca", mensaje: "Vas a poder gastar platita 💸", foto: false }

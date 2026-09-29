@@ -10,13 +10,13 @@
   /* ======================== ESTADO ======================== */
   function estadoInicial() {
     return {
-      iniciado: false, pos: null, track: [], km: 0, saltos: [],
+      iniciado: false, pos: null, track: [], km: 0, saltos: [], huecosResueltos: [],
       vistas: [], hitoFotos: [], destinosVistos: [], destinoFotos: [], respuestas: [],
       pendientes: [], finalizado: false
     };
   }
 
-  var ARRAYS = ["track", "saltos", "vistas", "hitoFotos", "destinosVistos", "destinoFotos", "respuestas", "pendientes"];
+  var ARRAYS = ["track", "saltos", "huecosResueltos", "vistas", "hitoFotos", "destinosVistos", "destinoFotos", "respuestas", "pendientes"];
 
   function cargar() {
     var base = estadoInicial();
@@ -49,6 +49,16 @@
     });
     if (ini < estado.track.length) tramos.push(estado.track.slice(ini));
     return tramos;
+  }
+
+  /* Cada salto deja un tramo sin medir: el par de puntos justo antes y justo
+     después. No se dibujan como recta, se piden como ruta real (ver OSRM). */
+  function huecos() {
+    var out = [];
+    estado.saltos.forEach(function (i) {
+      if (i > 0 && i < estado.track.length) out.push([estado.track[i - 1], estado.track[i]]);
+    });
+    return out;
   }
 
   function guardar() {
@@ -137,9 +147,133 @@
   }
 
   /* ======================== MAPA (Leaflet) ======================== */
+  var HUECO_MIN_M = 120;        /* más corto que esto, la recta no se nota */
+  var INTENTOS_HUECO = 3;
+  var OSRM_TIMEOUT_MS = 8000;
+  var OSRM_ESPERA_MS = 1100;    /* el servidor público pide no pasar de 1 req/s */
+
   var mapaObj = null;
   var capaDinamica = null;
   var siguiendo = true;
+
+  /* ======================== RUTAS DE LOS HUECOS (OSRM) ========================
+     Un hueco es un tramo que no medimos. No se dibuja como recta porque sería
+     inventar el camino: se le pide a OSRM la ruta real entre los dos puntos.
+     Si el servicio no responde, el tramo queda punteado y el mapa sigue siendo
+     honesto. */
+  var registroHuecos = {};   /* clave -> { n: intentos, cola: bool, volando: bool } */
+  var colaOsrm = [];
+  var osrmOcupado = false;
+
+  function claveHueco(a, b) {
+    return a.lat.toFixed(5) + "," + a.lon.toFixed(5) + ">" + b.lat.toFixed(5) + "," + b.lon.toFixed(5);
+  }
+
+  function buscarHuecoResuelto(a, b) {
+    var clave = claveHueco(a, b);
+    for (var i = 0; i < estado.huecosResueltos.length; i++) {
+      if (estado.huecosResueltos[i].k === clave) return estado.huecosResueltos[i].pts;
+    }
+    return null;
+  }
+
+  function encolarHueco(a, b) {
+    if (buscarHuecoResuelto(a, b)) return;
+    var clave = claveHueco(a, b);
+    var reg = registroHuecos[clave];
+    if (reg && (reg.cola || reg.volando)) return;
+    if (reg && reg.n >= INTENTOS_HUECO) return;
+    if (!reg) reg = registroHuecos[clave] = { n: 0, cola: false, volando: false };
+    reg.n++;
+    reg.cola = true;
+    colaOsrm.push({ clave: clave, reg: reg, a: a, b: b });
+    procesarColaOsrm();
+  }
+
+  function procesarColaOsrm() {
+    if (osrmOcupado) return;
+    var item = colaOsrm.shift();
+    if (!item) return;
+    item.reg.cola = false;
+    item.reg.volando = true;
+    osrmOcupado = true;
+    /* Un throw sincronico (por ejemplo un config.js viejo cacheado sin la lista
+       de servicios) no puede dejar la cola trabada para siempre. */
+    var pedido;
+    try { pedido = pedirRutaOsrm(item.a, item.b); }
+    catch (e) { pedido = Promise.reject(e); }
+    pedido.then(function (pts) {
+      estado.huecosResueltos.push({ k: item.clave, pts: pts });
+      if (estado.huecosResueltos.length > 300) {
+        estado.huecosResueltos.splice(0, estado.huecosResueltos.length - 300);
+      }
+      guardar();
+      /* El mapa en vivo se redibuja cada tanto y toma la ruta sola; el final
+         está quieto, así que hay que avisarle. */
+      if (mapaFinal) renderFinal();
+    })["catch"](function () { /* sin ruta: sigue punteado */ })
+      .then(function () {
+        item.reg.volando = false;
+        osrmOcupado = false;
+        setTimeout(procesarColaOsrm, OSRM_ESPERA_MS);
+      });
+  }
+
+  function pedirRutaOsrm(a, b) {
+    if (!CFG.osrm || !CFG.osrm.length) {
+      return Promise.reject(new Error("no hay servicio de rutas configurado"));
+    }
+    var extremos = a.lon.toFixed(6) + "," + a.lat.toFixed(6) + ";" + b.lon.toFixed(6) + "," + b.lat.toFixed(6);
+    var i = 0;
+
+    function intentar() {
+      if (i >= CFG.osrm.length) return Promise.reject(new Error("OSRM no disponible"));
+      var url = CFG.osrm[i++] + "/" + extremos + "?overview=full&geometries=geojson";
+      var ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+      var t = setTimeout(function () { if (ctrl) ctrl.abort(); }, OSRM_TIMEOUT_MS);
+      return fetch(url, ctrl ? { signal: ctrl.signal } : undefined)
+        .then(function (r) {
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return r.json();
+        })
+        .then(function (j) {
+          clearTimeout(t);
+          if (!j || j.code !== "Ok" || !j.routes || !j.routes.length) throw new Error("sin ruta");
+          /* GeoJSON viene como [lon, lat] y Leaflet quiere [lat, lon]. */
+          return j.routes[0].geometry.coordinates.map(function (c) {
+            return [+c[1].toFixed(5), +c[0].toFixed(5)];
+          });
+        })
+        ["catch"](function (e) {
+          clearTimeout(t);
+          return intentar();
+        });
+    }
+
+    return intentar();
+  }
+
+  /* Dibuja el recorrido en cualquier capa: lo medido en sólido, los huecos como
+     ruta real si se pudo calcular y punteados mientras tanto. */
+  function pintarRecorrido(capa, color) {
+    tramosTrack().forEach(function (tramo) {
+      if (tramo.length < 2) return;
+      window.L.polyline(tramo.map(function (p) { return [p.lat, p.lon]; }),
+        { color: color, weight: 5, opacity: 0.9 }).addTo(capa);
+    });
+
+    huecos().forEach(function (h) {
+      var a = h[0], b = h[1];
+      var resuelta = buscarHuecoResuelto(a, b);
+      if (resuelta && resuelta.length > 1) {
+        window.L.polyline(resuelta, { color: color, weight: 5, opacity: 0.9 }).addTo(capa);
+        return;
+      }
+      if (haversine(a, b) >= HUECO_MIN_M) encolarHueco(a, b);
+      window.L.polyline([[a.lat, a.lon], [b.lat, b.lon]],
+        { color: color, weight: 3, opacity: 0.5, dashArray: "6 8" }).addTo(capa);
+    });
+  }
 
   function dibujarMapa() {
     if (!window.L || !estado.pos) return;
@@ -159,12 +293,8 @@
     if (capaDinamica) mapaObj.removeLayer(capaDinamica);
     capaDinamica = window.L.layerGroup();
 
-    tramosTrack().forEach(function (tramo) {
-      if (tramo.length > 1) {
-        var pts = tramo.map(function (p) { return [p.lat, p.lon]; });
-        window.L.polyline(pts, { color: "#a9c3a0", weight: 5, opacity: 0.9 }).addTo(capaDinamica);
-      }
-    });
+    pintarRecorrido(capaDinamica, "#a9c3a0");
+
     window.L.circleMarker([estado.pos.lat, estado.pos.lon],
       { radius: 9, color: "#ffffff", fillColor: "#d65296", fillOpacity: 1, weight: 3 }).addTo(capaDinamica);
 
@@ -200,29 +330,40 @@
   /* ======================== GPS ======================== */
   var watcher = null;
   var ultimoProceso = 0;
-  var ocultoEn = 0;
-  var PAUSA_LARGA = 15000;
-  var SALTO_METROS = 2000;
+  var ultimaFijacion = 0;
+  var ULTIMO_PROCESO_MS = 2000;
+  var MOVIMIENTO_MIN_M = 10;
+  var V_MAX_MPS = 60;       /* 216 km/h: más rápido que eso no es un auto, es un salto del GPS */
+  var MAX_HUECO_S = 120;    /* sin muestras por tanto tiempo, la recta sería inventada */
 
   function iniciarGps() {
     if (watcher !== null) return;
     if (!navigator.geolocation) { mostrarErrorGps(CFG.textoSinGps); return; }
+    ultimaFijacion = Date.now();
     watcher = navigator.geolocation.watchPosition(
       function (pos) {
         ocultarErrorGps();
         var p = { lat: pos.coords.latitude, lon: pos.coords.longitude };
         if (!estado.pos) {
-          estado.pos = p; guardar(); dibujarMapa(); return;
+          estado.pos = p; ultimaFijacion = Date.now(); guardar(); dibujarMapa(); return;
         }
         var ahora = Date.now();
-        if (ahora - ultimoProceso < 4000) return;
-        ultimoProceso = ahora;
+        /* Toda muestra cuenta para el reloj aunque después se descarte por poco
+           movimiento: si no, el tiempo sin datos se acumula de más y un tramo
+           totalmente normal en segundo plano terminaria marcado como hueco. */
+        var dt = (ahora - ultimaFijacion) / 1000;
+        ultimaFijacion = ahora;
+        if (ahora - ultimoProceso < ULTIMO_PROCESO_MS) return;
         var d = haversine(estado.pos, p);
-        if (d < 15) return;
-        /* Si la app estuvo en segundo plano o el GPS se teletransportó, el tramo
-           recta no se dibuja: los kilómetros sí se suman, pero sin mentir en el mapa. */
-        var salto = (ocultoEn > 0 && ahora - ocultoEn > PAUSA_LARGA) || d > SALTO_METROS;
-        ocultoEn = 0;
+        if (d < MOVIMIENTO_MIN_M) return;
+        ultimoProceso = ahora;
+
+        /* Un tramo se marca como hueco si la velocidad implausible no puede ser
+           un auto, o si pasamos demasiado tiempo sin muestras. Los kilómetros
+           se suman siempre; lo que no se dibuja como recta se calcula como ruta. */
+        var velocidad = dt > 0 ? d / dt : Infinity;
+        var salto = velocidad > V_MAX_MPS || dt > MAX_HUECO_S;
+
         agregarTramo(estado.pos, p, d, salto);
       },
       function (err) {
@@ -473,11 +614,15 @@
 
   /* ======================== FINAL ======================== */
   var mapaFinal = null;
-  var mapaFinalListo = false;
+  var grupoFinal = null;
+  var renderFinalToken = 0;
+  var encajadoFinal = false;
 
   function finalizar() {
     if (estado.finalizado) return;
     estado.finalizado = true;
+    wakePedido = false;
+    soltarWake();
     guardar();
     if (watcher !== null) { navigator.geolocation.clearWatch(watcher); watcher = null; }
     mostrarPantalla("pantalla-final");
@@ -487,31 +632,33 @@
 
   function dibujarMapaFinal() {
     if (!window.L) { cargarLeaflet(dibujarMapaFinal); return; }
-    if (mapaFinalListo) return;
+    if (mapaFinal) { renderFinal(); return; }
     var wrap = $("#mapa-final-wrap");
     wrap.classList.remove("oculto");
 
-    if (!mapaFinal) {
-      mapaFinal = window.L.map("mapa-final").setView([-34.6, -58.4], 10);
-      window.L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
-        maxZoom: 19, attribution: "&copy; Esri"
-      }).addTo(mapaFinal);
-    }
+    mapaFinal = window.L.map("mapa-final").setView([-34.6, -58.4], 10);
+    window.L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 19, attribution: "&copy; Esri"
+    }).addTo(mapaFinal);
+    grupoFinal = window.L.layerGroup().addTo(mapaFinal);
+    renderFinal();
+  }
 
-    var grupo = window.L.layerGroup().addTo(mapaFinal);
+  /* Se vuelve a correr cada vez que OSRM responde un hueco, para que la ruta
+     real reemplace al tramo punteado. El encuadre se hace una sola vez. */
+  function renderFinal() {
+    if (!mapaFinal) return;
+    var token = ++renderFinalToken;
+    grupoFinal.clearLayers();
 
-    tramosTrack().forEach(function (tramo) {
-      if (tramo.length > 1) {
-        var pts = tramo.map(function (p) { return [p.lat, p.lon]; });
-        window.L.polyline(pts, { color: "#e8a0b4", weight: 5, opacity: 0.9 }).addTo(grupo);
-      }
-    });
+    pintarRecorrido(grupoFinal, "#e8a0b4");
 
     var bounds = [];
     estado.track.forEach(function (p) { bounds.push([p.lat, p.lon]); });
     if (estado.pos) bounds.push([estado.pos.lat, estado.pos.lon]);
 
     todasFotos(function (fotos) {
+      if (token !== renderFinalToken) return;
       fotos.forEach(function (f) {
         if (f.lat === null || f.lon === null) return;
         var ic = window.L.divIcon({
@@ -520,23 +667,69 @@
           iconSize: [56, 56],
           iconAnchor: [28, 28]
         });
-        var mk = window.L.marker([f.lat, f.lon], { icon: ic }).addTo(grupo);
+        var mk = window.L.marker([f.lat, f.lon], { icon: ic }).addTo(grupoFinal);
         mk.on("click", function () { abrirLightbox(f.dataUrl); });
         bounds.push([f.lat, f.lon]);
       });
 
-      if (bounds.length) {
+      if (!encajadoFinal && bounds.length) {
         mapaFinal.fitBounds(bounds, { padding: [40, 40] });
+        encajadoFinal = true;
       }
-      setTimeout(function () { if (mapaFinal) mapaFinal.invalidateSize(); }, 150);
-      mapaFinalListo = true;
     });
+
+    setTimeout(function () { if (mapaFinal) mapaFinal.invalidateSize(); }, 150);
   }
 
   /* ======================== LIGHTBOX ======================== */
   function abrirLightbox(src) {
     $("#lightbox-img").src = src;
     $("#lightbox").classList.remove("oculto");
+  }
+
+  /* ======================== PANTALLA ENCENDIDA ========================
+     Con la pantalla apagada el navegador congela la página y se terminan
+     perdiendo los puntos del recorrido. Con la pantalla encendida la app sigue
+     corriendo; el auto suele tener el celular montado y cargando. */
+  var wakeLock = null;
+  var wakePedido = false;
+  var wakeSoportado = ("wakeLock" in navigator);
+
+  function pedirWake() {
+    if (!wakeSoportado || wakeLock || document.hidden) { pintarWake(); return Promise.resolve(); }
+    return navigator.wakeLock.request("screen").then(function (s) {
+      wakeLock = s;
+      /* El navegador lo suelta solo al ocultar la pestaña: hay que repedirlo. */
+      s.addEventListener("release", function () { wakeLock = null; pintarWake(); });
+      pintarWake();
+    })["catch"](function () { pintarWake(); });
+  }
+
+  function soltarWake() {
+    var s = wakeLock;
+    wakeLock = null;
+    if (s && s.release) s.release()["catch"](function () {});
+    pintarWake();
+  }
+
+  function pintarWake() {
+    var btn = $("#btn-wake");
+    if (!btn) return;
+    /* Si el config.js cacheadoTodavia no tiene los textos, no se muestra el
+       boton antes que un "undefined" en pantalla. */
+    if (!wakeSoportado || !CFG.textoWakeOn || !CFG.textoWakeOff) {
+      btn.classList.add("oculto");
+      return;
+    }
+    btn.classList.remove("oculto");
+    btn.classList.toggle("activo", !!wakeLock);
+    btn.textContent = wakeLock ? CFG.textoWakeOn : CFG.textoWakeOff;
+  }
+
+  function alternarWake() {
+    wakePedido = !wakePedido;
+    if (wakePedido) pedirWake(); else soltarWake();
+    pintarWake();
   }
 
   /* ======================== ERRORES GPS ======================== */
@@ -637,6 +830,9 @@
     $("#btn-terminar").addEventListener("click", finalizar);
     $("#btn-reiniciar").addEventListener("click", reiniciar);
 
+    var btnWake = $("#btn-wake");
+    if (btnWake) btnWake.addEventListener("click", alternarWake);
+
     var lb = $("#lightbox");
     lb.addEventListener("click", function () { lb.classList.add("oculto"); });
 
@@ -671,12 +867,12 @@
 
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) {
-      ocultoEn = Date.now();
       guardar();
       return;
     }
     /* Al volver: se reabre lo que quedó pendiente y se retoma la finalización
        que se había quedado esperando en segundo plano. */
+    if (wakePedido) pedirWake();
     if (estado.finalizado || !estado.iniciado) return;
     if (estado.pos) dibujarMapa();
     siguienteEvento();
@@ -688,6 +884,7 @@
   function init() {
     aplicarTextos();
     bindear();
+    pintarWake();
     if (estado.finalizado) {
       mostrarPantalla("pantalla-final");
       renderRecuerdos();

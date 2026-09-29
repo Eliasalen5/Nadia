@@ -182,6 +182,16 @@ body {
   font-weight: bold;
 }
 
+.wake-btn {
+  align-self: center;
+}
+
+.wake-btn.activo {
+  background: var(--verde);
+  color: var(--blanco);
+  border-color: var(--verde);
+}
+
 .modo-prueba {
   text-align: center;
   font-size: 12px;
