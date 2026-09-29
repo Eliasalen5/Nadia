@@ -318,6 +318,13 @@ body {
   box-shadow: 0 0 0 3px rgba(232, 160, 180, 0.2);
 }
 
+/* Aviso de cuántas fotos ya se guardaron en este evento */
+.modal-fotos {
+  font-size: 13px;
+  color: var(--tinta-suave);
+  margin-bottom: 2px;
+}
+
 /* ==================== FINAL ==================== */
 .final {
   flex-direction: column;
@@ -354,6 +361,7 @@ body {
 .foto-ic {
   background: transparent;
   border: none;
+  position: relative;
 }
 
 .foto-ic img {
@@ -363,6 +371,25 @@ body {
   object-fit: cover;
   border: 3px solid var(--blanco);
   box-shadow: 0 6px 16px rgba(90, 85, 96, 0.35);
+}
+
+/* Cuántas fotos hay en esa parada */
+.foto-n {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 11px;
+  background: var(--rosa);
+  color: var(--blanco);
+  border: 2px solid var(--blanco);
+  box-shadow: 0 2px 6px rgba(90, 85, 96, 0.35);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
 }
 
 /* ==================== LIGHTBOX ==================== */

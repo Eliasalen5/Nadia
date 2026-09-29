@@ -10,7 +10,10 @@ const CONFIG = {
   textoReintentar: "Reintentar",
 
   textoSubirFoto: "Subir recuerdo 📸",
+  textoAgregarFoto: "Agregar otra 📸",
+  textoFotosGuardadas: "Ya guardaste {n} recuerdo(s) 📷",
   textoSeguir: "Seguir",
+  textoListo: "Listo 🏁",
   textoTerminar: "Terminar recorrido 🏁",
   textoReiniciar: "Empezar de nuevo 🔄",
   textoFinal: "Así quedó nuestro recorrido 💞",
@@ -27,11 +30,17 @@ const CONFIG = {
   ],
 
   hitos: [
+    { km: 20, titulo: "Ahora vamos al mejor destino", mensaje: "Este es el lugar donde más quiero que lo disfrutes y te relajes al 100%. Preparate, que viene lo mejor. 💫", foto: true },
     { km: 30, titulo: "¿Dónde crees que vamos?", mensaje: "Es un lugar que te gusta ir mucho. ¡Paciencia, tomemos unos mates! 🧉", foto: true, input: true, placeholder: "Escribí tu respuesta…" },
-    { km: 100, titulo: "Estamos cerca", mensaje: "Vas a poder gastar platita 💸", foto: false }
+    { km: 100, titulo: "Estamos cerca", mensaje: "Vas a poder gastar platita 💸", foto: true },
+    { km: 145, titulo: "Un lugar sin reloj", mensaje: "No hay paredes, ni reloj, ni nada que se prende. Solo un techo de tela, el fuego y vos. 🌌", foto: true }
   ],
 
   destinos: [
-    { km: 125, titulo: "¡Llegamos!", mensaje: "Tu regalo es elegirte cualquier cosa del shopping pero solo una, ¡pensalo bien!! 🛍️", foto: true }
+    { km: 125, titulo: "¡Llegamos!", mensaje: "Tu regalo es elegirte cualquier cosa del shopping pero solo una, ¡pensalo bien!! 🛍️", foto: true },
+    { km: 187, titulo: "El mejor destino", mensaje: "Llegamos 💫 Acá termina el viaje y empieza lo mejor: el lugar donde te relajás al 100%, tal como te prometí a los 20 km. Vos acomodate y la fogata la prendemos nosotros. 🔥", foto: true }
+    /* TODO: falta la parada que sigue después del glamping. Decime km, si es pista
+       o destino, título y mensaje, y la agregás acá. Al ser la última, el botón
+       del modal pasa a decir "Listo 🏁" y ahí se cierra el recorrido. */
   ]
 };

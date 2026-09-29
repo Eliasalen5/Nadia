@@ -400,6 +400,7 @@
   var modalAbierto = false;
   var contextoFoto = null;
   var eventoActual = null;
+  var eventoConFoto = false;
 
   function yaPendiente(tipo, idx) {
     return estado.pendientes.some(function (p) { return p.tipo === tipo && p.idx === idx; });
@@ -443,6 +444,9 @@
     if (estado.finalizado) return false;
     /* Con la app en segundo plano no se finaliza nada: se retoma al volver. */
     if (document.hidden) return false;
+    /* Con un evento abierto todavía no: se finaliza al cerrarlo, para que las
+       varias fotos de la última parada se puedan subir antes. */
+    if (modalAbierto) return false;
     var todosVistos = CFG.hitos.every(function (h) {
       return estado.vistas.indexOf(CFG.hitos.indexOf(h)) !== -1;
     });
@@ -484,12 +488,18 @@
     modalAbierto = true;
     contextoFoto = ev;
     eventoActual = ev;
+    eventoConFoto = conFoto;
     $("#m-sello").textContent = sello;
     $("#m-sello").classList.toggle("oculto", ev.tipo === "destino");
     $("#m-titulo").textContent = titulo || "";
     $("#m-texto").textContent = mensaje || "";
     var btnFoto = $("#m-subir-foto");
     btnFoto.classList.toggle("oculto", !conFoto);
+    /* En el último destino el botón cierra el recorrido, así que avisa. */
+    var ultimo = ev.tipo === "destino" && ev.idx === CFG.destinos.length - 1;
+    $("#m-cerrar").textContent = ultimo
+      ? (CFG.textoListo || CFG.textoSeguir || "Listo")
+      : (CFG.textoSeguir || "Seguir");
     var inp = $("#m-input");
     var conInput = ev.tipo === "pista" && !!CFG.hitos[ev.idx].input;
     inp.classList.toggle("oculto", !conInput);
@@ -498,13 +508,40 @@
       inp.placeholder = CFG.hitos[ev.idx].placeholder || "";
     }
     $("#modal-evento").classList.add("abierto");
+    contarFotosDeEvento(ev, function (n) { pintarFotosModal(n); });
+  }
+
+  /* ======================== FOTOS ======================== */
+  /* Cada foto guarda a qué evento pertenece (tipo + idx). Eso permite varias
+     fotos por evento y agruparlas después para dibujar un solo marcador con
+     contador. Las fotos viejas no lo tienen y quedan en su propio grupo. */
+  function contarFotosDeEvento(ev, cb) {
+    if (!ev) { cb(0); return; }
+    todasFotos(function (fotos) {
+      var n = fotos.filter(function (f) { return f.tipo === ev.tipo && f.idx === ev.idx; }).length;
+      cb(n);
+    });
+  }
+
+  function pintarFotosModal(n) {
+    var cont = $("#m-fotos");
+    if (!eventoConFoto || !n) {
+      cont.classList.add("oculto");
+    } else {
+      cont.textContent = (CFG.textoFotosGuardadas || "{n} recuerdo(s) 📷").replace("{n}", n);
+      cont.classList.remove("oculto");
+    }
+    $("#m-subir-foto").textContent = n
+      ? (CFG.textoAgregarFoto || "Agregar otra 📸")
+      : (CFG.textoSubirFoto || "Subir recuerdo 📸");
   }
 
   function cerrarEvento() {
-    if (eventoActual && eventoActual.tipo === "pista" && !$("#m-input").classList.contains("oculto")) {
+    var ev = eventoActual;
+    if (ev && ev.tipo === "pista" && !$("#m-input").classList.contains("oculto")) {
       var v = $("#m-input").value.trim();
-      if (v && estado.respuestas[eventoActual.idx] !== v) {
-        estado.respuestas[eventoActual.idx] = v;
+      if (v && estado.respuestas[ev.idx] !== v) {
+        estado.respuestas[ev.idx] = v;
         guardar();
       }
     }
@@ -512,17 +549,30 @@
        con el modal abierto, sigue en la cola y reaparece al volver. */
     for (var i = estado.pendientes.length - 1; i >= 0; i--) {
       var p = estado.pendientes[i];
-      if (eventoActual && p.tipo === eventoActual.tipo && p.idx === eventoActual.idx) {
+      if (ev && p.tipo === ev.tipo && p.idx === ev.idx) {
         estado.pendientes.splice(i, 1);
       }
     }
-    marcarVisto(eventoActual);
+    marcarVisto(ev);
     modalAbierto = false;
     contextoFoto = null;
     eventoActual = null;
     $("#modal-evento").classList.remove("abierto");
     guardar();
+
+    /* El último destino cierra el recorrido, y se cierra recién cuando el
+       usuario aprieta "Listo": sacar la primera foto ya no lo termina, porque
+       ahora se pueden subir varias. Sin foto no se cierra solo, para no perder
+       el recuerdo; queda el botón de terminar recorrido por si la cámara falla. */
+    var cierraViaje = ev && ev.tipo === "destino" && ev.idx === CFG.destinos.length - 1 &&
+      estado.destinoFotos.indexOf(ev.idx) !== -1;
+
+    /* Con la app en segundo plano no se finaliza nada: se retoma al volver. */
+    if (document.hidden) { siguienteEvento(); return; }
+    if (cierraViaje) { setTimeout(finalizar, 300); return; }
+
     siguienteEvento();
+    if (!intentarFinal()) actualizarBotonTerminar();
   }
 
   function actualizarBotonTerminar() {
@@ -536,7 +586,14 @@
   }
 
   /* ======================== FOTOS ======================== */
+  var fotoAbriendo = false;
+
   function pedirFoto() {
+    /* Un toque doble abriría dos selectores de archivo. Si el usuario
+       cancela no se dispara ningún evento, así que el bloqueo se suelta solo. */
+    if (fotoAbriendo) return;
+    fotoAbriendo = true;
+    setTimeout(function () { fotoAbriendo = false; }, 1000);
     var input = $("#input-foto");
     input.value = "";
     input.click();
@@ -544,6 +601,7 @@
 
   function procesarArchivo(file) {
     if (!file) return;
+    fotoAbriendo = false;
     var reader = new FileReader();
     reader.onload = function (e) {
       var img = new Image();
@@ -573,6 +631,8 @@
       km: km,
       lat: pos ? pos.lat : null,
       lon: pos ? pos.lon : null,
+      tipo: ev ? ev.tipo : null,
+      idx: ev ? ev.idx : null,
       dataUrl: dataUrl
     };
 
@@ -581,20 +641,11 @@
       if (ev && ev.tipo === "destino" && estado.destinoFotos.indexOf(ev.idx) === -1) estado.destinoFotos.push(ev.idx);
       guardar();
 
-      var esUltimoDestino = ev && ev.tipo === "destino" &&
-        ev.idx === CFG.destinos.length - 1 &&
-        estado.destinoFotos.indexOf(ev.idx) !== -1;
-
-      cerrarEvento();
-
-      /* Si se tomó la foto del último destino pero la app quedó en segundo plano,
-         no se finaliza ahora: se retoma sola al volver a abrir la app. */
-      if (esUltimoDestino && !document.hidden) {
-        setTimeout(finalizar, 300);
-      } else {
-        renderRecuerdos();
-        if (!intentarFinal()) actualizarBotonTerminar();
-      }
+      /* El modal sigue abierto: se pueden subir varias fotos del mismo evento.
+         El recorrido ya no se cierra acá, se cierra al apretar "Listo". */
+      contarFotosDeEvento(ev, function (n) { pintarFotosModal(n); });
+      renderRecuerdos();
+      if (!intentarFinal()) actualizarBotonTerminar();
     });
   }
 
@@ -610,6 +661,24 @@
         gal.appendChild(img);
       });
     });
+  }
+
+  /* Las fotos se agrupan por evento para que las varias de una misma parada se
+     dibujen en un solo marcador con contador. Las fotos viejas no guardan a qué
+     evento pertenecían, así que cada una queda en su propio grupo. */
+  function agruparFotos(fotos) {
+    var grupos = [], porClave = {}, sueltos = 0;
+    fotos.forEach(function (f) {
+      var clave = (f.tipo != null && f.idx != null)
+        ? f.tipo + ":" + f.idx
+        : "suelta:" + (f.id != null ? f.id : "x" + sueltos++);
+      if (!porClave[clave]) {
+        porClave[clave] = { fotos: [] };
+        grupos.push(porClave[clave]);
+      }
+      porClave[clave].fotos.push(f);
+    });
+    return grupos;
   }
 
   /* ======================== FINAL ======================== */
@@ -659,17 +728,22 @@
 
     todasFotos(function (fotos) {
       if (token !== renderFinalToken) return;
-      fotos.forEach(function (f) {
-        if (f.lat === null || f.lon === null) return;
+      agruparFotos(fotos).forEach(function (g) {
+        /* Varias fotos pueden caer en el mismo instante si el GPS titila: se
+           dibuja la primera que sí tenga posición. */
+        var conPos = g.fotos.filter(function (f) { return f.lat !== null && f.lon !== null; });
+        if (!conPos.length) return;
+        var html = '<img src="' + conPos[0].dataUrl + '">' +
+          (g.fotos.length > 1 ? '<span class="foto-n">' + g.fotos.length + "</span>" : "");
         var ic = window.L.divIcon({
           className: "foto-ic",
-          html: '<img src="' + f.dataUrl + '">',
+          html: html,
           iconSize: [56, 56],
           iconAnchor: [28, 28]
         });
-        var mk = window.L.marker([f.lat, f.lon], { icon: ic }).addTo(grupoFinal);
-        mk.on("click", function () { abrirLightbox(f.dataUrl); });
-        bounds.push([f.lat, f.lon]);
+        var mk = window.L.marker([conPos[0].lat, conPos[0].lon], { icon: ic }).addTo(grupoFinal);
+        mk.on("click", function () { abrirLightbox(conPos[0].dataUrl); });
+        bounds.push([conPos[0].lat, conPos[0].lon]);
       });
 
       if (!encajadoFinal && bounds.length) {
