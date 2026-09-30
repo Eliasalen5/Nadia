@@ -43,7 +43,7 @@ const CONFIG = {
     { km: 30, titulo: "¿Dónde pensas que vamos?", mensaje: "Vamos a ir a un lugar solo para hacer un poco de tiempo. Hacemos mates?", foto: true, input: true, placeholder: "Escribí tu respuesta…" },
     { km: 100, titulo: "Estamos cerca", mensaje: "Es uno de tus lugares favoritos, donde podés gastar mucha platita.", foto: true, input: true, placeholder: "Escribí tu respuesta…" },
     { km: 145, titulo: "Un lugar sin reloj", mensaje: "No hay paredes, ni reloj, solo un techo de tela, el fuego y vos. 🌌", foto: true, input: true, placeholder: "Escribí tu respuesta…" },
-    { km: 190, titulo: "Se ve el río", mensaje: "Todavía no llegamos, pero el río ya se asoma en el horizonte y el campanario del Santuario aparece entre los árboles. ⛪ ¿Sabés qué se está festejando acá?", foto: true, input: true, placeholder: "Escribí tu respuesta…" }
+    { km: 190, titulo: "Paramos a comer", mensaje: "La última parada antes de volver a Baradero: paramos a comer en un lugar con más nombre propio que el lugar mismo. 🍽 Antes de elegirlo, decime: ¿qué se nos viene después?", foto: true, input: true, placeholder: "Escribí tu respuesta…" }
   ],
 
   /* Cada parada se identifica por su km, nunca por su posición, así que se
