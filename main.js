@@ -1141,8 +1141,22 @@
   }
 
   function volver() {
-    if (estado.finalizado) { mostrarPantalla("pantalla-final"); return; }
-    if (estado.iniciado) { mostrarPantalla("pantalla-viaje"); return; }
+    /* Desde el historial el botón tiene que poder sacar siempre a algún lado.
+       Si lo que se está mirando es un recorrido ya guardado, la pantalla final
+       no sirve de destino: ahí no se puede seguir el viaje ni aparece "Empezar
+       de nuevo", y con el historial se quedan en un bucle del que no se puede
+       volver a la portada para arrancar otro recorrido. */
+    if (estado.finalizado && vistaFinal && vistaFinal.id === estado.id) {
+      mostrarPantalla("pantalla-final");
+      return;
+    }
+    if (estado.iniciado && !estado.finalizado) {
+      mostrarPantalla("pantalla-viaje");
+      /* El mapa estuvo oculto todo este tiempo: sin volver a dibujarlo queda
+         en blanco, porque Leaflet midió el div cuando no se veía. */
+      dibujarMapa();
+      return;
+    }
     mostrarPantalla("pantalla-portada");
   }
 
@@ -1162,7 +1176,39 @@
     });
   }
 
+  function borrarRecorrido(t) {
+    var detalle = fechaLegible(t.cerrado) + " · " + formatearKm(t.km) + " km";
+    pedirConfirmacion((CFG.textoConfirmBorrar || "Se borra el recorrido y todos sus recuerdos. No se puede deshacer.").replace("{detalle}", detalle),
+      function (ok) {
+        if (!ok) return;
+        /* Se saca de la lista primero: si el borrado de las fotos fallara, el
+           recorrido ya no aparece igual y no queda nada colgado de él. */
+        escribirHistorial(leerHistorial().filter(function (x) { return x.id !== t.id; }));
+        borrarFotosDelRecorrido(t.id, function () {
+          if (mapaFinal && vistaFinal && vistaFinal.id === t.id) {
+            /* Se estaba mirando justo el que se está borrando: el mapa y la
+               galería quedaban mostrando algo que ya no existe. */
+            try { mapaFinal.remove(); } catch (e) {}
+            mapaFinal = null;
+            grupoFinal = null;
+            vistaFinal = null;
+            $("#mapa-final-wrap").classList.add("oculto");
+            $("#galeria").innerHTML = "";
+          }
+          renderHistorial();
+          actualizarBotonesRecorridos();
+        });
+      },
+      { titulo: CFG.textoTituloBorrar || "¿Borrar este recorrido?", si: CFG.textoBorrarSi || "Sí, borrar" });
+  }
+
   function tarjetaRecorrido(t, foto) {
+    /* La tarjeta y el botón de borrar son hermanos y no uno dentro del otro:
+       un <button> dentro de otro <button> es HTML inválido, y en iOS el toque
+       se queda con el de adentro y la tarjeta deja de abrir. */
+    var item = document.createElement("div");
+    item.className = "h-item";
+
     var b = document.createElement("button");
     b.type = "button";
     b.className = "h-card";
@@ -1190,7 +1236,21 @@
     b.appendChild(miniatura);
     b.appendChild(datos);
     b.addEventListener("click", function () { abrirRecorrido(t, false); });
-    return b;
+    item.appendChild(b);
+
+    /* El recorrido en curso no se borra desde acá: se limpia con "Empezar de
+       nuevo", que además no deja la pantalla final apuntando a algo que ya no
+       está. Borrarlo de acá rompería el estado con el que se está trabajando. */
+    if (t.id !== estado.id) {
+      var del = document.createElement("button");
+      del.type = "button";
+      del.className = "h-borrar";
+      del.textContent = CFG.textoBorrar || "🗑";
+      del.setAttribute("aria-label", (CFG.textoTituloBorrar || "Borrar este recorrido") + " " + fechaLegible(t.cerrado));
+      del.addEventListener("click", function () { borrarRecorrido(t); });
+      item.appendChild(del);
+    }
+    return item;
   }
 
   /* ======================== LIGHTBOX ======================== */
@@ -1275,6 +1335,20 @@
 
   /* ======================== FLUJO ======================== */
   function empezar() {
+    /* Se llega a la portada con un recorrido ya terminado cuando se vuelve desde
+       el historial. Ese recorrido quedó guardado con sus recuerdos, así que
+       apretar para arrancar tiene que empezar uno nuevo de verdad: si no, el
+       viaje se abriría con el mapa sin dibujar y con todas las paradas ya
+       marcadas, y no se podría volver a contar ni terminar. */
+    if (estado.finalizado) {
+      estado = estadoInicial();
+      /* El mapa de la pantalla final sigue apuntando al recorrido anterior: si
+         este termina, hay que desarmarlo o el nuevo se dibuja sobre el viejo. */
+      if (mapaFinal) { try { mapaFinal.remove(); } catch (e) {} }
+      mapaFinal = null;
+      grupoFinal = null;
+      vistaFinal = null;
+    }
     estado.iniciado = true;
     guardar();
     mostrarPantalla("pantalla-viaje");
@@ -1290,9 +1364,14 @@
 
   var confirmarCb = null;
 
-  function pedirConfirmacion(texto, cb) {
+  function pedirConfirmacion(texto, cb, extra) {
     confirmarCb = cb;
+    /* El mismo modal sirve para reiniciar y para borrar: si el título y el botón
+       de adelante quedaran fijos, al borrar se leería "¿Empezar de nuevo?". */
+    extra = extra || {};
+    $("#c-titulo").textContent = extra.titulo || CFG.textoConfirmar || "¿Empezar de nuevo?";
     $("#c-texto").textContent = texto || "";
+    $("#c-si").textContent = extra.si || CFG.textoSi || "Sí, dale";
     $("#modal-confirm").classList.add("abierto");
   }
 

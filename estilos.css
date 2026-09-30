@@ -385,6 +385,35 @@ body {
   gap: 12px;
 }
 
+/* La fila del historial: la tarjeta que abre el recorrido y, al lado, el botón
+   de borrarlo. Son hermanos para que el toque de uno no caiga en el otro. */
+.h-item {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.h-item .h-card {
+  flex: 1;
+  min-width: 0;
+}
+
+.h-borrar {
+  flex: 0 0 auto;
+  width: 46px;
+  border-radius: 18px;
+  border: 1.5px solid rgba(214, 82, 150, 0.35);
+  background: var(--blanco);
+  color: #d65296;
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.h-borrar:hover { background: #fdeef4; }
+.h-borrar:active { transform: scale(0.94); }
+
 .h-card {
   display: flex;
   align-items: center;
