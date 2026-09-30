@@ -473,6 +473,35 @@ body {
   box-shadow: 0 6px 16px rgba(169, 195, 160, 0.3);
 }
 
+/* Las respuestas de las pistas, debajo de los recuerdos */
+.respuestas {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.r-tarjeta {
+  background: var(--blanco);
+  border: 2px solid var(--rosa);
+  border-radius: 18px;
+  padding: 12px 16px;
+  box-shadow: 0 6px 16px rgba(232, 160, 180, 0.28);
+}
+
+.r-pie {
+  font-size: 13px;
+  color: var(--tinta-suave);
+  margin-bottom: 6px;
+}
+
+.r-texto {
+  font-size: 17px;
+  font-style: italic;
+  color: var(--tinta);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
 /* Marcador de foto en el mapa final */
 .foto-ic {
   background: transparent;

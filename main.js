@@ -875,7 +875,10 @@
     var ev = eventoActual;
     if (ev && ev.tipo === "pista" && !$("#m-input").classList.contains("oculto")) {
       var v = $("#m-input").value.trim();
+      /* Si lo borra todo, la respuesta se borra: si no, lo que había quedado de
+         una visita anterior seguiría apareciendo al final como si fuera de ahora. */
       if (v) estado.respuestas[ev.km] = v;
+      else delete estado.respuestas[ev.km];
     }
     /* El evento recién se da por visto cuando se cierra: si la app se suspende
        con el modal abierto, sigue en la cola y reaparece al volver. */
@@ -1004,6 +1007,41 @@
     });
   }
 
+  /* Lo que ella escribió en cada pista, junto a los recuerdos del viaje. Se
+     guardan por km, así que se muestran en el orden del recorrido y se
+     descartan las de paradas que ya no están en el config. */
+  function renderRespuestas(t) {
+    var cont = $("#respuestas");
+    if (!cont) return;
+    cont.innerHTML = "";
+    var r = (t && t.respuestas) || {};
+    Object.keys(r).forEach(function (clave) {
+      var km = +clave;
+      var texto = typeof r[clave] === "string" ? r[clave].trim() : "";
+      if (!isFinite(km) || !texto) return;
+      var pista = null;
+      CFG.hitos.forEach(function (h) { if (h.km === km) pista = h; });
+      if (!pista) return;
+
+      var card = document.createElement("div");
+      card.className = "r-tarjeta";
+
+      var pie = document.createElement("div");
+      pie.className = "r-pie";
+      pie.textContent = km + " km · " + (pista.titulo || "");
+      card.appendChild(pie);
+
+      var cuerpo = document.createElement("p");
+      cuerpo.className = "r-texto";
+      /* Su respuesta va como texto, nunca como HTML. */
+      cuerpo.textContent = texto;
+      card.appendChild(cuerpo);
+
+      cont.appendChild(card);
+    });
+    cont.classList.toggle("oculto", !cont.children.length);
+  }
+
   /* Las fotos se agrupan por parada para que las varias de una misma parada se
      dibujen en un solo marcador con contador. Las fotos que no se pudieron
      ubicar en ninguna parada quedan cada una en su propio grupo. */
@@ -1056,6 +1094,7 @@
     mostrarPantalla("pantalla-final");
     actualizarBotonesRecorridos();
     renderRecuerdos(t.id);
+    renderRespuestas(t);
     cargarLeaflet(dibujarMapaFinal);
   }
 
@@ -1194,6 +1233,7 @@
             vistaFinal = null;
             $("#mapa-final-wrap").classList.add("oculto");
             $("#galeria").innerHTML = "";
+            renderRespuestas(null);
           }
           renderHistorial();
           actualizarBotonesRecorridos();
