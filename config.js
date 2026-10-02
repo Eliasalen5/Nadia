@@ -43,7 +43,7 @@ const CONFIG = {
     { km: 30, titulo: "¿Dónde pensas que vamos?", mensaje: "Vamos a ir a un lugar solo para hacer un poco de tiempo. Hacemos mates?", foto: true, input: true, placeholder: "Escribí tu respuesta…" },
     { km: 100, titulo: "Estamos cerca", mensaje: "Es uno de tus lugares favoritos, donde podés gastar mucha platita.", foto: true, input: true, placeholder: "Escribí tu respuesta…" },
     { km: 145, titulo: "Un lugar sin reloj", mensaje: "No hay paredes, ni reloj, solo un techo de tela, el fuego y vos. 🌌", foto: true, input: true, placeholder: "Escribí tu respuesta…" },
-    { km: 190, titulo: "Paramos a comer", mensaje: "Hacemos una ultima parada para comer en un lugar con más nombre propio que el lugar mismo. 🍽", foto: true, input: true, placeholder: "Escribí tu respuesta…" }
+    { km: 190, titulo: "Paramos a comer", mensaje: "Hacemos una última parada para comer en un lugar con más nombre propio que el lugar mismo. 🍽", foto: true, input: true, placeholder: "Escribí tu respuesta…" }
   ],
 
   /* Cada cuántos kilómetros, una vez pasada la última parada de la lista de
@@ -65,6 +65,6 @@ const CONFIG = {
   destinos: [
     { km: 135, titulo: "¡Llegamos!", mensaje: "Tu regalo es elegirte solo una cosa del shopping, pensalo muy bien.", foto: true },
     { km: 177, titulo: "El mejor destino", mensaje: "Llegamos. Esta vez no vas a dormir entre cuatro paredes. Prepara las ganas de desconectar, y solo disfuta.", foto: true },
-    { km: 219, titulo: "¡Llegamos a Luján!", mensaje: "Luján, la ciudad del río y del Santuario. Guardamos el auto y caminamos, que de acá en adelante mandás vos. 💐 Y si seguimos viaje, cada 20 km te freno para guardar un recuerdo más.", foto: true }
+    { km: 219, titulo: "¡Llegamos a Luján!", mensaje: "Luján, la ciudad del río y del Santuario. Guardamos el auto y caminamos, que de acá en adelante mandás vos. 💐", foto: true }
   ]
 };
