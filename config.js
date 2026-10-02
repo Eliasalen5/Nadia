@@ -4,7 +4,7 @@ const CONFIG = {
   textoBoton: "¿Agarramos ruta?",
 
   textoEncabezado: "Nuestra aventura 🚗💨",
-  textoIntroMapa: "Durante la travesía te voy dejando pistas y vos vas guardando recuerdos. Después de la última parada seguimos igual, con un alto cada tanto. ¡Disfrutá cada kilómetro! 🎁",
+  textoIntroMapa: "Durante el viaje te voy dejando pistas y vos vas guardando recuerdos. Después de la última parada seguimos igual, con un alto cada tanto. ¡Disfrutá cada kilómetro! 🎁",
   textoBuscando: "Buscando tu ubicación…",
   textoSinGps: "No puedo ver tu ubicación. Activá el permiso de localización en el navegador.",
   textoReintentar: "Reintentar",
