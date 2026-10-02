@@ -33,13 +33,15 @@
     return {
       id: nuevoId(),
       iniciado: false, pos: null, track: [], km: 0, saltos: [], huecosResueltos: [],
-      vistas: [], hitoFotos: [], destinosVistos: [], destinoFotos: [], respuestas: {},
+      vistas: [], hitoFotos: [], destinosVistos: [], destinoFotos: [],
+      recuerdosVistos: [], recuerdoFotos: [], respuestas: {},
       pendientes: [], finalizado: false, firma: null
     };
   }
 
 
-  var ARRAYS = ["track", "saltos", "huecosResueltos", "vistas", "hitoFotos", "destinosVistos", "destinoFotos", "pendientes"];
+  var ARRAYS = ["track", "saltos", "huecosResueltos", "vistas", "hitoFotos", "destinosVistos",
+    "destinoFotos", "recuerdosVistos", "recuerdoFotos", "pendientes"];
 
   function firmaActual() {
     return { hitos: CFG.hitos.map(kmDe), destinos: CFG.destinos.map(kmDe) };
@@ -52,16 +54,57 @@
     return false;
   }
 
+  /* ======================== RECUERDOS ========================
+     Los recuerdos no son paradas fijas del config: son todos los kilómetros que
+     caen cada N detrás de la última parada, y se Frenan uno cada vez que ella
+     guarda uno. Por eso no hay una lista donde buscarlos: se reconocen por esa
+     misma cuenta, que sigue siendo un km único e inamovible. Así se pueden
+     agregar, correr o borrar las paradas de arriba sin romper lo ya guardado,
+     y los kilómetros siguen valiendo después de la última de ellas. */
+  function pasoRecuerdoM() {
+    var n = CFG.kmRecuerdo;
+    return (typeof n === "number" && isFinite(n) && n > 0) ? n * 1000 : 20000;
+  }
+
+  function ultimaParadaM() {
+    var max = 0;
+    CFG.hitos.concat(CFG.destinos).forEach(function (e) {
+      if (e && typeof e.km === "number" && isFinite(e.km) && e.km * 1000 > max) max = e.km * 1000;
+    });
+    return max;
+  }
+
+  /* k viene en kilómetros, como los del config. */
+  function esRecuerdo(k) {
+    var desde = k * 1000 - ultimaParadaM();
+    var paso = pasoRecuerdoM();
+    return desde > 0 && Math.abs(desde % paso) < 0.5;
+  }
+
+  /* El primer recuerdo que todavía no se pasó. Devuelve metros. */
+  function siguienteRecuerdoM(mActual) {
+    var base = ultimaParadaM();
+    var paso = pasoRecuerdoM();
+    var n = Math.floor((mActual - base) / paso) + 1;
+    if (n < 1) n = 1;
+    return base + n * paso;
+  }
+
+  function existeEvento(tipo, k) {
+    if (tipo === "recuerdo") return esRecuerdo(k);
+    return existeEn(tipo === "pista" ? CFG.hitos : CFG.destinos, k);
+  }
+
   /* Traduce índices viejos a kilómetros y descarta los que ya no están en el
      config (paradas borradas) o están repetidos. */
-  function aKms(lista, valores, vieja, legacy) {
+  function aKms(tipo, valores, vieja, legacy) {
     if (!Array.isArray(valores)) return [];
     var vistos = {};
     return valores.map(function (v) {
       return (legacy && typeof v === "number") ? vieja[v] : v;
     }).filter(function (k) {
       if (typeof k !== "number" || !isFinite(k) || vistos[k]) return false;
-      if (!existeEn(lista, k)) return false;
+      if (!existeEvento(tipo, k)) return false;
       vistos[k] = true;
       return true;
     });
@@ -70,28 +113,32 @@
   function migrar(e, firmaGuardada, legacy) {
     var fh = (firmaGuardada && Array.isArray(firmaGuardada.hitos)) ? firmaGuardada.hitos : FIRMA_VIEJA.hitos;
     var fd = (firmaGuardada && Array.isArray(firmaGuardada.destinos)) ? firmaGuardada.destinos : FIRMA_VIEJA.destinos;
+    /* Los recuerdos no existían antes: si una versión vieja guardó alguno, sus
+       índices no significan nada y se descartan. */
+    var firmas = { pista: fh, destino: fd, recuerdo: [] };
 
-    e.vistas = aKms(CFG.hitos, e.vistas, fh, legacy);
-    e.hitoFotos = aKms(CFG.hitos, e.hitoFotos, fh, legacy);
-    e.destinosVistos = aKms(CFG.destinos, e.destinosVistos, fd, legacy);
-    e.destinoFotos = aKms(CFG.destinos, e.destinoFotos, fd, legacy);
+    e.vistas = aKms("pista", e.vistas, fh, legacy);
+    e.hitoFotos = aKms("pista", e.hitoFotos, fh, legacy);
+    e.destinosVistos = aKms("destino", e.destinosVistos, fd, legacy);
+    e.destinoFotos = aKms("destino", e.destinoFotos, fd, legacy);
+    e.recuerdosVistos = aKms("recuerdo", e.recuerdosVistos, [], legacy);
+    e.recuerdoFotos = aKms("recuerdo", e.recuerdoFotos, [], legacy);
 
     e.pendientes = (Array.isArray(e.pendientes) ? e.pendientes : []).map(function (p) {
       if (!p || typeof p !== "object") return null;
-      var esPista = p.tipo === "pista";
-      var lista = esPista ? CFG.hitos : CFG.destinos;
-      var vieja = esPista ? fh : fd;
+      var vieja = firmas[p.tipo];
+      if (!vieja) return null;
       var nuevo = { tipo: p.tipo, km: legacy ? vieja[p.idx] : p.km };
       if (p.lat != null) nuevo.lat = p.lat;
       if (p.lon != null) nuevo.lon = p.lon;
-      return existeEn(lista, nuevo.km) ? nuevo : null;
+      return existeEvento(nuevo.tipo, nuevo.km) ? nuevo : null;
     }).filter(Boolean);
 
     /* Las respuestas viejas eran un array indexado por posición del hito. */
     var r = {};
     Object.keys(e.respuestas || {}).forEach(function (clave) {
       var nuevo = (/^\d+$/.test(clave) && legacy) ? fh[+clave] : +clave;
-      if (existeEn(CFG.hitos, nuevo)) r[nuevo] = e.respuestas[clave];
+      if (existeEvento("pista", nuevo) || existeEvento("recuerdo", nuevo)) r[nuevo] = e.respuestas[clave];
     });
     e.respuestas = r;
 
@@ -237,7 +284,8 @@
       huecosResueltos: estado.huecosResueltos,
       respuestas: estado.respuestas,
       vistas: estado.vistas,
-      destinosVistos: estado.destinosVistos
+      destinosVistos: estado.destinosVistos,
+      recuerdosVistos: estado.recuerdosVistos
     });
     if (!escribirHistorial(lista)) {
       console.error("No se pudo guardar el recorrido terminado");
@@ -731,24 +779,69 @@
 
   function agregarUna(lista, v) { if (lista.indexOf(v) === -1) lista.push(v); }
 
+  /* Los tres tipos de parada guardan lo mismo (qué se vio y qué se le sacó) en
+     listas separadas: los kilómetros no se pisan entre tipos y un config con
+     hitos en 100 y un recuerdo en 100 siguen siendo dos paradas distintas. */
+  function listaVistos(tipo) {
+    if (tipo === "pista") return estado.vistas;
+    if (tipo === "recuerdo") return estado.recuerdosVistos;
+    return estado.destinosVistos;
+  }
+
+  function listaFotos(tipo) {
+    if (tipo === "pista") return estado.hitoFotos;
+    if (tipo === "recuerdo") return estado.recuerdoFotos;
+    return estado.destinoFotos;
+  }
+
   function eventoDe(tipo, k) {
+    if (tipo === "recuerdo") return esRecuerdo(k) ? defRecuerdo(k) : null;
     var lista = tipo === "pista" ? CFG.hitos : CFG.destinos;
     for (var i = 0; i < lista.length; i++) if (lista[i].km === k) return lista[i];
     return null;
   }
 
+  /* El recuerdo no tiene un texto propio en el config: es el mismo alto, el que
+     se va repitiendo cada N kilómetros. */
+  function defRecuerdo(k) {
+    return {
+      km: k,
+      titulo: CFG.tituloRecuerdo || "Un alto en el camino",
+      mensaje: CFG.mensajeRecuerdo || "Guardá un recuerdo de este lugar 📸",
+      foto: true,
+      input: true,
+      placeholder: CFG.placeholderRecuerdo || "Escribí tu respuesta…"
+    };
+  }
+
   function visto(tipo, k) {
-    return (tipo === "pista" ? estado.vistas : estado.destinosVistos).indexOf(k) !== -1;
+    return listaVistos(tipo).indexOf(k) !== -1;
   }
 
   function marcarVisto(ev) {
     if (!ev) return;
-    agregarUna(ev.tipo === "pista" ? estado.vistas : estado.destinosVistos, ev.km);
+    agregarUna(listaVistos(ev.tipo), ev.km);
   }
 
-  function todoVisto() {
-    return CFG.hitos.every(function (h) { return estado.vistas.indexOf(h.km) !== -1; }) &&
-      CFG.destinos.every(function (d) { return estado.destinosVistos.indexOf(d.km) !== -1; });
+  /* Los recuerdos se generan según por dónde va el auto, no salen de una lista:
+     el primero cae N kilómetros después de la última parada y de ahí en adelante
+     cada N. Si de golpe se pasaron varios (el GPS se cortó un rato, la app quedó
+     en segundo plano), solo se frena por el último: una tanda de modales
+     seguidos de golpe no lo va a querer usar. */
+  var RECUERDO_MAX_REV = 50;
+  function encolarRecuerdosAtrasados() {
+    var paso = pasoRecuerdoM();
+    var base = ultimaParadaM();
+    var perdidos = [];
+    for (var i = Math.floor((estado.km - base) / paso); i >= 1 && perdidos.length < RECUERDO_MAX_REV; i--) {
+      var k = (base + i * paso) / 1000;
+      /* Los recuerdos van en fila: en cuanto aparece uno ya visto, todos los de
+         atrás también lo están y no hay nada que recuperar. */
+      if (visto("recuerdo", k)) break;
+      perdidos.push(k);
+    }
+    if (!perdidos.length) return false;
+    return encolar("recuerdo", perdidos[0]);
   }
 
   function revisarEventos() {
@@ -765,6 +858,8 @@
         if (encolar("destino", d.km)) algo = true;
       }
     });
+
+    if (encolarRecuerdosAtrasados()) algo = true;
 
     if (algo) { guardar(); siguienteEvento(); }
     actualizarBotonTerminar();
@@ -789,18 +884,20 @@
       return;
     }
     var esPista = ev.tipo === "pista";
+    var esRecuerdo = ev.tipo === "recuerdo";
     var conFoto = esPista ? !!def.foto : true;
 
     modalAbierto = true;
     contextoFoto = ev;
     eventoActual = ev;
-    $("#m-sello").textContent = esPista ? "🎁 PISTA" : "🎉 DESTINO";
-    $("#m-sello").classList.toggle("oculto", !esPista);
+    $("#m-sello").textContent = esPista ? "🎁 PISTA"
+      : (esRecuerdo ? (CFG.selloRecuerdo || "📸 RECUERDO") : "🎉 DESTINO");
+    $("#m-sello").classList.toggle("oculto", !esPista && !esRecuerdo);
     $("#m-titulo").textContent = def.titulo || "";
     $("#m-texto").textContent = def.mensaje || "";
     $("#m-subir-foto").classList.toggle("oculto", !conFoto);
     var inp = $("#m-input");
-    var conInput = esPista && !!def.input;
+    var conInput = (esPista || esRecuerdo) && !!def.input;
     inp.classList.toggle("oculto", !conInput);
     if (conInput) {
       inp.value = estado.respuestas[ev.km] || "";
@@ -834,6 +931,8 @@
   function kmDeFoto(f) {
     if (f.kmEv != null) return f.kmEv;
     if (f.idx == null) return null;
+    /* Los recuerdos no existían antes, así que nunca vienen por índice viejo. */
+    if (f.tipo === "recuerdo") return null;
     var esPista = f.tipo === "pista";
     var cfg = esPista ? CFG.hitos : CFG.destinos;
     /* El mismo índice puede significar dos paradas distintas según la versión
@@ -873,7 +972,8 @@
 
   function cerrarEvento() {
     var ev = eventoActual;
-    if (ev && ev.tipo === "pista" && !$("#m-input").classList.contains("oculto")) {
+    if (ev && (ev.tipo === "pista" || ev.tipo === "recuerdo") &&
+        !$("#m-input").classList.contains("oculto")) {
       var v = $("#m-input").value.trim();
       /* Si lo borra todo, la respuesta se borra: si no, lo que había quedado de
          una visita anterior seguiría apareciendo al final como si fuera de ahora. */
@@ -904,7 +1004,11 @@
   }
 
   function actualizarBotonTerminar() {
-    $("#btn-terminar").classList.toggle("oculto", !(todoVisto() && !estado.finalizado));
+    /* El recorrido lo termina ella, cuando se le canto: el botón está siempre
+       disponible mientras se está en camino, sin importar cuántas paradas
+       queden ni si ya vio todas. Así sigue adjudicando recuerdos después del
+       último destino y cierra el viaje a la hora que le parezca. */
+    $("#btn-terminar").classList.toggle("oculto", !(estado.iniciado && !estado.finalizado));
   }
 
   /* ======================== FOTOS ======================== */
@@ -985,7 +1089,7 @@
         avisarFoto("No pude guardar el recuerdo 😞 Probá otra.");
         return;
       }
-      if (ev) agregarUna(ev.tipo === "pista" ? estado.hitoFotos : estado.destinoFotos, ev.km);
+      if (ev) agregarUna(listaFotos(ev.tipo), ev.km);
       guardar();
       avisarFoto("¡Recuerdo guardado! 📸", true);
       /* El modal sigue abierto: se pueden subir varias fotos de la misma parada. */
@@ -1007,9 +1111,9 @@
     });
   }
 
-  /* Lo que ella escribió en cada pista, junto a los recuerdos del viaje. Se
-     guardan por km, así que se muestran en el orden del recorrido y se
-     descartan las de paradas que ya no están en el config. */
+  /* Lo que ella escribió en cada pista y en cada recuerdo, junto a los recuerdos
+     del viaje. Se guardan por km, así que se muestran en el orden del recorrido
+     y se descartan las de paradas que ya no están en el config. */
   function renderRespuestas(t) {
     var cont = $("#respuestas");
     if (!cont) return;
@@ -1019,16 +1123,15 @@
       var km = +clave;
       var texto = typeof r[clave] === "string" ? r[clave].trim() : "";
       if (!isFinite(km) || !texto) return;
-      var pista = null;
-      CFG.hitos.forEach(function (h) { if (h.km === km) pista = h; });
-      if (!pista) return;
+      var def = eventoDe("pista", km) || eventoDe("recuerdo", km);
+      if (!def) return;
 
       var card = document.createElement("div");
       card.className = "r-tarjeta";
 
       var pie = document.createElement("div");
       pie.className = "r-pie";
-      pie.textContent = km + " km · " + (pista.titulo || "");
+      pie.textContent = km + " km · " + (def.titulo || "");
       card.appendChild(pie);
 
       var cuerpo = document.createElement("p");
@@ -1397,6 +1500,7 @@
     cargarLeaflet();
     iniciarGps();
     renderRecuerdos(estado.id);
+    actualizarBotonTerminar();
     /* Si ya había kilómetros recorridos (la app quedó abierta y vuelve a
        empezar), las paradas que se pasaron sin abrirse saltan ahora. */
     siguienteEvento();
@@ -1465,6 +1569,12 @@
         ev = { tipo: "destino", km: d.km };
         return true;
       });
+    }
+    /* Los recuerdos no son una lista: el que toca ahora es el primero que está
+       más adelante del auto (aunque todavía no haya llegado a él). */
+    if (!ev) {
+      var kmR = siguienteRecuerdoM(Math.max(estado.km, ultimaParadaM())) / 1000;
+      if (esRecuerdo(kmR)) ev = { tipo: "recuerdo", km: kmR };
     }
     if (ev) {
       abrirEvento(ev);

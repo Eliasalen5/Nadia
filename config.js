@@ -4,7 +4,7 @@ const CONFIG = {
   textoBoton: "¿Agarramos ruta?",
 
   textoEncabezado: "Nuestra aventura 🚗💨",
-  textoIntroMapa: "Durante la travesía te voy dejando pistas y vos vas guardando recuerdos. ¡Disfrutá cada kilómetro! 🎁",
+  textoIntroMapa: "Durante la travesía te voy dejando pistas y vos vas guardando recuerdos. Después de la última parada seguimos igual, con un alto cada tanto. ¡Disfrutá cada kilómetro! 🎁",
   textoBuscando: "Buscando tu ubicación…",
   textoSinGps: "No puedo ver tu ubicación. Activá el permiso de localización en el navegador.",
   textoReintentar: "Reintentar",
@@ -46,13 +46,25 @@ const CONFIG = {
     { km: 190, titulo: "Paramos a comer", mensaje: "La última parada antes de volver a Baradero: paramos a comer en un lugar con más nombre propio que el lugar mismo. 🍽 Antes de elegirlo, decime: ¿qué se nos viene después?", foto: true, input: true, placeholder: "Escribí tu respuesta…" }
   ],
 
+  /* Cada cuántos kilómetros, una vez pasada la última parada de la lista de
+     arriba, aparece un alto para guardar un recuerdo. No hay destinos ni pistas
+     ahí: es solo un lugar donde frenar a sacar una foto y escribir algo, para
+     que el viaje siga teniendo motivos de sacar el celular aunque ya se haya
+     terminado la ruta. El recorrido no se termina solo nunca: lo cierra ella
+     cuando quiera, en cualquier momento. */
+  kmRecuerdo: 20,
+  tituloRecuerdo: "Un alto en el camino",
+  mensajeRecuerdo: "Ya llegamos a la última parada, pero la ruta sigue. Guardá un recuerdo de acá 📸",
+  selloRecuerdo: "📸 RECUERDO",
+  placeholderRecuerdo: "Escribí algo de este lugar…",
+
   /* Cada parada se identifica por su km, nunca por su posición, así que se
      pueden agregar, correr o borrar en cualquier momento sin romper el
-     progreso ya guardado. El recorrido tampoco se termina solo: cuando ya
-     vio todas las paradas le aparece el botón para terminarlo. */
+     progreso ya guardado. El recorrido tampoco se termina solo: el botón para
+     terminarlo está disponible siempre. */
   destinos: [
     { km: 135, titulo: "¡Llegamos!", mensaje: "Tu regalo es elegirte solo una cosa del shopping, pensalo muy bien.", foto: true },
     { km: 177, titulo: "El mejor destino", mensaje: "Llegamos. Esta vez no vas a dormir entre cuatro paredes. Prepara las ganas de desconectar, y solo disfuta.", foto: true },
-    { km: 219, titulo: "¡Llegamos a Luján!", mensaje: "Se acabó la ruta: Luján, la ciudad del río y del Santuario. Guardamos el auto y caminamos, que de acá en adelante mandás vos. 💐", foto: true }
+    { km: 219, titulo: "¡Llegamos a Luján!", mensaje: "Luján, la ciudad del río y del Santuario. Guardamos el auto y caminamos, que de acá en adelante mandás vos. 💐 Y si seguimos viaje, cada 20 km te freno para guardar un recuerdo más.", foto: true }
   ]
 };
